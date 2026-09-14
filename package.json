@@ -1,0 +1,55 @@
+{
+  "name": "sekisan-kanri",
+  "version": "0.18.0",
+  "description": "図面からはじまる、内装の積算管理",
+  "author": "Tokyo Carpet",
+  "private": true,
+  "type": "module",
+  "main": "out/main/index.js",
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && electron-vite build",
+    "postinstall": "install-electron --no && electron-builder install-app-deps && node scripts/prepare-pdf.mjs",
+    "test": "node scripts/test.mjs",
+    "test:e2e": "npm run build && node scripts/e2e.mjs",
+    "build:win": "npm run build && electron-builder --win --x64",
+    "build:mac": "npm run build && electron-builder --mac --dir",
+    "predev": "node scripts/prepare-pdf.mjs",
+    "prebuild": "node scripts/prepare-pdf.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "adm-zip": "0.6.0",
+    "better-sqlite3": "13.0.3",
+    "lucide-react": "1.43.0",
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.3.289",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router-dom": "7.18.3",
+    "zod": "4.5.4",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/adm-zip": "0.5.8",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "24.13.3",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.7",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "prettier": "3.9.6",
+    "tsx": "4.23.13",
+    "typescript": "5.9.3",
+    "vite": "7.3.6"
+  }
+}

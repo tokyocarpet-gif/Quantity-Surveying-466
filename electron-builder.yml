@@ -1,0 +1,23 @@
+appId: jp.tokyocarpet.sekisan-kanri
+productName: 積算管理
+directories:
+  output: dist
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - node_modules/better-sqlite3/**/*
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: sekisan-kanri-${version}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+mac:
+  category: public.app-category.productivity
+  identity: null
+publish: null

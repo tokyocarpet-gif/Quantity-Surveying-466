@@ -1,0 +1,66 @@
+.material-input {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+.material-input input {
+  width: 100%;
+  padding-right: 30px !important;
+}
+.material-input .material-input-toggle {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  bottom: 2px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: #627a6c;
+}
+.material-input .material-input-toggle:hover {
+  background: #edf4ef;
+}
+.material-options {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid #cbd9cf;
+  border-radius: 6px;
+  background: white;
+  color: #23352c;
+  box-shadow: 0 8px 24px #183e2826;
+}
+.material-options button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  justify-items: start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: white;
+  color: inherit;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.material-options button[aria-selected='true'],
+.material-options button:hover {
+  background: #eaf4ed;
+}
+.material-options strong {
+  font-size: 12px;
+}
+.material-options small,
+.material-options p {
+  font-size: 11px;
+  color: #637e6d;
+}
+.material-options p {
+  padding: 10px;
+  line-height: 1.6;
+}
