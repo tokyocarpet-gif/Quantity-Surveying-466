@@ -372,7 +372,8 @@ export function TakeoffEditor({
         .sort((a, b) => distance(point, a) - distance(point, b))[0]
       if (closest) return closest
     }
-    return ((mode === 'room' && !rectangle) || mode === 'sleeve') && points.length > 0
+    return ((mode === 'room' && !rectangle) || mode === 'sleeve' || mode === 'scale') &&
+      points.length > 0
       ? axisAssistPoint(point, points.at(-1)!, dimensions.scale)
       : point
   }
@@ -988,7 +989,7 @@ export function TakeoffEditor({
                   : mode === 'sleeve'
                     ? '選択した部屋に加える袖壁の始点・終点をクリックします。外周と分けて拾うため、線が交差しても面積は変わりません。'
                     : mode === 'scale'
-                      ? '既知の寸法の始点と終点をクリックしてください。'
+                      ? '既知の寸法の始点と終点をクリック。軸の近くは水平・垂直補助、離すと斜めに指定できます。'
                       : mode === 'room'
                         ? rectangle
                           ? '矩形の対角の2点をクリックしてください。'
