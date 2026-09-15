@@ -1,6 +1,6 @@
 import { layoutTypeLabels } from '../../shared/layout'
 import { TileSizeFields } from './TileSizeFields'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import { categories, categoryLabels, categoryUnits } from '../../shared/takeoff'
 import {
   materialInputSchema,
@@ -12,6 +12,33 @@ import {
 } from '../../shared/materials'
 import { TakeoffDialog, quantityText } from './takeoff/Dialogs'
 import { unwrap } from './store'
+
+/** Enter advances single-line fields; Tab and select/IME controls keep their native behavior. */
+function advanceMaterialField(event: KeyboardEvent<HTMLFormElement>): void {
+  if (event.key !== 'Enter') return
+  if (event.nativeEvent.isComposing || event.keyCode === 229) return
+  if (event.repeat) {
+    event.preventDefault()
+    return
+  }
+  const input = event.target
+  if (!(input instanceof HTMLInputElement) || !['text', 'number'].includes(input.type)) return
+  event.preventDefault()
+  const fields = Array.from(
+    event.currentTarget.querySelectorAll<HTMLInputElement>('input:not([type="hidden"])')
+  ).filter(
+    (field) => !field.disabled && field.type !== 'checkbox' && field.getClientRects().length > 0
+  )
+  const next = fields[fields.indexOf(input) + 1]
+  if (next) {
+    next.focus()
+    next.select()
+  } else {
+    event.currentTarget
+      .querySelector<HTMLButtonElement>('button[type="submit"]:not(:disabled)')
+      ?.focus()
+  }
+}
 
 export function MaterialManager({
   projectId,
@@ -269,6 +296,7 @@ export function MaterialManager({
           <form
             className="form-body"
             key={edit === 'new' ? 'new' : edit.id}
+            onKeyDown={advanceMaterialField}
             onSubmit={(e) => {
               e.preventDefault()
               setError('')
@@ -298,6 +326,9 @@ export function MaterialManager({
               }
             }}
           >
+            <p className="panel-description">
+              Enterで次の入力欄へ移動し、最後に「材料を保存」で確定します。
+            </p>
             <label>
               部位
               <select
@@ -374,7 +405,7 @@ export function MaterialManager({
               >
                 編集をやめる
               </button>
-              <button className="primary" disabled={busy}>
+              <button type="submit" className="primary" disabled={busy}>
                 材料を保存
               </button>
             </div>
@@ -399,6 +430,7 @@ export function MaterialManager({
         >
           <form
             className="summary-edit-form"
+            onKeyDown={advanceMaterialField}
             onSubmit={async (e) => {
               e.preventDefault()
               setBusy(true)
@@ -431,7 +463,7 @@ export function MaterialManager({
                 {error}
               </p>
             )}
-            <button className="primary" disabled={busy}>
+            <button type="submit" className="primary" disabled={busy}>
               追加して保存
             </button>
           </form>
