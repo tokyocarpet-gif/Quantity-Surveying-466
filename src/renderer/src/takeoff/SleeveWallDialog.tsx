@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { distance, sleeveWallSchema, type Room, type SleeveWall } from '../../../shared/takeoff'
+import {
+  distance,
+  takeoffUnit,
+  sleeveWallSchema,
+  type Room,
+  type SleeveWall
+} from '../../../shared/takeoff'
 import { quantityText, TakeoffDialog } from './Dialogs'
 export function SleeveWallDialog({
   room,
@@ -23,6 +29,7 @@ export function SleeveWallDialog({
   const [baseboard, setBaseboard] = useState(wall.includeBaseboard)
   const [validation, setValidation] = useState('')
   const length = distance(...wall.points) * scale
+  const wallUnit = takeoffUnit('wall', room.finishes)
   const appliedHeight = height === '' ? room.heightMm : Number(height)
   return (
     <TakeoffDialog title="袖壁の設定" busy={busy} close={close}>
@@ -94,7 +101,7 @@ export function SleeveWallDialog({
             長さ {quantityText(length)} m × {faces}面<br />
             壁加算：
             {room.enabledCategories.includes('wall')
-              ? `${quantityText((length * faces * appliedHeight) / 1000)} ㎡`
+              ? `${quantityText(length * faces * (wallUnit === 'm' ? 1 : appliedHeight / 1000))} ${wallUnit}`
               : '壁は拾う部位に未選択'}
             <br />
             巾木加算：

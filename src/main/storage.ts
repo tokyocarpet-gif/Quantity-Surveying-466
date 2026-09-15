@@ -46,7 +46,8 @@ import {
   MATERIAL_STANDARD_SQL,
   ROLL_MATERIAL_SQL,
   ROLL_CUT_ORDER_SQL,
-  ROLL_SHIPPING_SQL
+  ROLL_SHIPPING_SQL,
+  WALL_LENGTH_SQL
 } from './schema'
 import {
   TAKEOFF_SQL,
@@ -83,7 +84,8 @@ const manifestSchema = z
       z.literal(10),
       z.literal(11),
       z.literal(12),
-      z.literal(13)
+      z.literal(13),
+      z.literal(14)
     ]),
     createdAt: z.string().datetime(),
     files: z
@@ -129,13 +131,13 @@ export class Storage {
     try {
       this.db.pragma('foreign_keys = ON')
       const version = this.db.pragma('user_version', { simple: true }) as number
-      if (version > 13)
+      if (version > 14)
         throw new Error('このデータは新しいバージョンの積算管理で作成されています。')
-      if (version > 0 && version < 13) {
+      if (version > 0 && version < 14) {
         const migrationPath = join(
           this.root,
           'recovery',
-          `before-schema-v13-${Date.now()}-${randomUUID()}.db`
+          `before-schema-v14-${Date.now()}-${randomUUID()}.db`
         )
         mkdirSync(dirname(migrationPath), { recursive: true })
         this.db.prepare('VACUUM INTO ?').run(migrationPath)
@@ -514,7 +516,7 @@ export class Storage {
       const createdAt = now()
       const manifest = Buffer.from(
         JSON.stringify(
-          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 13, createdAt, files },
+          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 14, createdAt, files },
           null,
           2
         )
@@ -604,6 +606,7 @@ export class Storage {
         if (manifest.schemaVersion >= 11) reference.exec(ROLL_MATERIAL_SQL)
         if (manifest.schemaVersion >= 12) reference.exec(ROLL_CUT_ORDER_SQL)
         if (manifest.schemaVersion >= 13) reference.exec(ROLL_SHIPPING_SQL)
+        if (manifest.schemaVersion >= 14) reference.exec(WALL_LENGTH_SQL)
         if (JSON.stringify(schema(db)) !== JSON.stringify(schema(reference)))
           throw new Error('このアプリのデータ形式と一致しません。')
       } finally {
@@ -668,7 +671,7 @@ export class Storage {
     } finally {
       db.close()
     }
-    if (manifest.schemaVersion < 13) {
+    if (manifest.schemaVersion < 14) {
       const staged = new Database(join(target, DATABASE))
       try {
         staged.pragma('foreign_keys = ON')

@@ -221,7 +221,7 @@ test('v8からv9への移行は材料を保持して事前退避する', () => {
   try {
     assert.equal(s.readMaterials(null).global.length, 9)
     assert.equal(s.readMaterials(null).global[0].tileWidthMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v13-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v14-')))
   } finally {
     s.close()
     rmSync(root, { recursive: true, force: true })
@@ -259,7 +259,7 @@ test('v9の仕様文・寸法・保存済み目地を残して厚み未設定で
     assert.equal(material.tileHeightMm, 900)
     assert.equal(material.tileGapMm, 2)
     assert.equal(material.tileThicknessMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v13-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v14-')))
   } finally {
     storage.close()
     rmSync(root, { recursive: true, force: true })

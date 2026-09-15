@@ -63,6 +63,7 @@ export const finishesSchema = z
     wall: z
       .object({
         name: z.string().trim().max(120),
+        unit: z.enum(['㎡', 'm']).optional(),
         specification: z.string().trim().max(400).optional(),
         unitPrice: z.number().finite().min(0).max(1e9).nullable()
       })
@@ -84,6 +85,12 @@ export const finishesSchema = z
   })
   .strict()
 export type Finishes = z.infer<typeof finishesSchema>
+export function takeoffUnit(category: Category, finishes: Finishes): '㎡' | 'm' {
+  return category === 'wall' ? (finishes.wall.unit ?? '㎡') : categoryUnits[category]
+}
+export function takeoffMethod(category: Category, unit: '㎡' | 'm'): TakeoffItem['method'] {
+  return unit === 'm' ? 'room-perimeter' : category === 'wall' ? 'room-wall' : 'room-area'
+}
 export const emptyFinishes = (): Finishes =>
   Object.fromEntries(categories.map((c) => [c, { name: '', unitPrice: null }])) as Finishes
 export const sleeveWallSchema = z
@@ -210,6 +217,7 @@ export interface QuantityChange {
   itemId: string
   roomName: string
   category: string
+  beforeUnit?: string
   unit: string
   before: number | null
   after: number | null
@@ -296,7 +304,8 @@ export function roomQuantities(
   polygon: Point[],
   scale: number | null,
   heightMm: number,
-  sleeveWalls: SleeveWall[] = []
+  sleeveWalls: SleeveWall[] = [],
+  wallUnit: '㎡' | 'm' = '㎡'
 ): Record<Category, number> {
   if (scale === null || !Number.isFinite(scale) || scale <= 0)
     throw new Error('このページの縮尺を設定してください。')
@@ -304,14 +313,14 @@ export function roomQuantities(
   const { area, perimeter } = geometry(polygon)
   const result = {
     ceiling: area * scale * scale,
-    wall: (perimeter * scale * heightMm) / 1000,
+    wall: perimeter * scale * (wallUnit === 'm' ? 1 : heightMm / 1000),
     baseboard: perimeter * scale,
     floor: area * scale * scale
   }
   for (const raw of sleeveWalls) {
     const wall = sleeveWallSchema.parse(raw)
     const length = distance(...wall.points) * scale * wall.faces
-    result.wall += (length * (wall.heightMm ?? heightMm)) / 1000
+    result.wall += length * (wallUnit === 'm' ? 1 : (wall.heightMm ?? heightMm) / 1000)
     if (wall.includeBaseboard) result.baseboard += length
   }
   if (Object.values(result).some((n) => !Number.isFinite(n) || n > 1e12))
@@ -349,6 +358,7 @@ export function quantityRows(before: PageState, after: PageState): QuantityChang
         )?.name ?? '部屋未指定',
       category: item.category,
       unit: item.unit,
+      ...(old && next && old.unit !== next.unit ? { beforeUnit: old.unit } : {}),
       before: old ? netQuantity(old, before.deductions) : null,
       after: next ? netQuantity(next, after.deductions) : null,
       fixed: item.fixedQuantity !== null

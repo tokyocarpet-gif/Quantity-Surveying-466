@@ -1,6 +1,6 @@
 {
   "name": "sekisan-kanri",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "description": "図面からはじまる、内装の積算管理",
   "author": "Tokyo Carpet",
   "private": true,

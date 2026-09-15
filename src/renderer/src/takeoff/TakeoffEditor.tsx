@@ -27,7 +27,6 @@ import type { Drawing } from '../../../shared/api'
 import {
   categories,
   categoryLabels,
-  categoryUnits,
   distance,
   geometry,
   netQuantity,
@@ -923,18 +922,19 @@ export function TakeoffEditor({
                               i.category === c
                           )
                           if (!items.length) return null
-                          const net = items.reduce(
-                            (sum, item) => sum + netQuantity(item, state.deductions),
-                            0
-                          )
-                          return (
-                            <span key={c}>
-                              <span>{categoryLabels[c]}</span>
-                              <b className={net < 0 ? 'negative' : ''}>
-                                {quantityText(net)} <small>{categoryUnits[c]}</small>
-                              </b>
-                            </span>
-                          )
+                          return [...new Set(items.map((i) => i.unit))].map((unit) => {
+                            const net = items
+                              .filter((i) => i.unit === unit)
+                              .reduce((sum, item) => sum + netQuantity(item, state.deductions), 0)
+                            return (
+                              <span key={`${c}-${unit}`}>
+                                <span>{categoryLabels[c]}</span>
+                                <b className={net < 0 ? 'negative' : ''}>
+                                  {quantityText(net)} <small>{unit}</small>
+                                </b>
+                              </span>
+                            )
+                          })
                         })}
                       </div>
                     </button>
@@ -1278,7 +1278,9 @@ export function TakeoffEditor({
                       </div>
                     ))
                   ) : (
-                    <p className="panel-description">壁は幅×高さ、巾木は幅を控除します。</p>
+                    <p className="panel-description">
+                      ㎡は幅×高さ、mは幅を控除します。貼らない開口だけ登録してください。
+                    </p>
                   )}
                   <button
                     className="text-button danger-text delete-room"
@@ -1557,7 +1559,8 @@ export function TakeoffEditor({
                 </label>
               </div>
               <p className="panel-description">
-                壁：幅×高さ×箇所数 ／ 巾木：幅×箇所数。巾木の計算には高さを使いません。
+                ㎡の控除：幅×高さ×箇所数 ／
+                mの控除：幅×箇所数。mの計算には高さを使いません。ボーダーなどを貼る位置にかかる開口だけ登録してください。
               </p>
               {error && !preview && (
                 <div className="form-error" role="alert">

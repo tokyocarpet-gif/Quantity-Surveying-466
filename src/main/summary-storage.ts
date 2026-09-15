@@ -164,7 +164,10 @@ export function editSummary(db: Database.Database, raw: unknown): SummaryReport 
           finishes: string
         }
         const finishes = finishesSchema.parse(JSON.parse(stored.finishes))
-        finishes[line.category as Category] = input.finish
+        finishes[line.category as Category] = {
+          ...finishes[line.category as Category],
+          ...input.finish
+        }
         db.prepare('UPDATE rooms SET finishes=? WHERE id=?').run(
           JSON.stringify(finishes),
           line.roomId

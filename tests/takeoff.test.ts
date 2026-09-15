@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import AdmZip from 'adm-zip'
 import { PDFDocument } from 'pdf-lib'
+import { summaryRequestSchema } from '../src/shared/summary'
+import { validateTakeoffData } from '../src/main/takeoff-storage'
 import { Storage } from '../src/main/storage'
 import { BASE_SQL } from '../src/main/schema'
 import {
@@ -19,6 +21,7 @@ import {
   netQuantity,
   type PageState,
   type Point,
+  type RoomInput,
   type TakeoffChange,
   type TakeoffMutation
 } from '../src/shared/takeoff'
@@ -29,7 +32,7 @@ const polygon: Point[] = [
   { x: 500, y: 400 },
   { x: 100, y: 400 }
 ]
-const roomInput = () => ({
+const roomInput = (): RoomInput => ({
   name: '会議室',
   color: '#327e6d',
   heightMm: 2400,
@@ -491,7 +494,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 13)
+    assert.equal(internal.pragma('user_version', { simple: true }), 14)
   } finally {
     f.cleanup()
   }
@@ -994,6 +997,167 @@ test('共通・物件マスタは登録順によらず天井・壁・巾木・�
         order,
         [...order].sort((a, b) => a - b)
       )
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('壁の延長mは高さを掛けず、袖壁の面数・開口幅・縮尺を反映して集計と見積へ引き継ぐ', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const id = randomUUID(),
+      input = roomInput()
+    input.finishes.wall = { name: '養生プラベニア', unit: 'm', unitPrice: 500 }
+    input.sleeveWalls = [
+      {
+        id: randomUUID(),
+        name: '袖壁',
+        points: [
+          { x: 100, y: 100 },
+          { x: 200, y: 100 }
+        ],
+        faces: 2,
+        heightMm: 1000,
+        includeBaseboard: false
+      }
+    ]
+    let state = f.apply({ kind: 'room', id, input })
+    let wall = state.items.find((i) => i.category === 'wall')!
+    const wallId = wall.id
+    near(wall.quantity, 16)
+    assert.equal(wall.unit, 'm')
+    assert.equal(wall.method, 'room-perimeter')
+    near(state.items.find((i) => i.category === 'baseboard')!.quantity, 14)
+    const deductionId = randomUUID()
+    state = f.apply({
+      kind: 'deduction',
+      id: deductionId,
+      input: { targetItemId: wallId, name: '出入口', widthMm: 900, heightMm: 2100, count: 1 }
+    })
+    near(
+      netQuantity(
+        state.items.find((i) => i.id === wallId)!,
+        state.deductions
+      ),
+      15.1
+    )
+    state = f.apply({ kind: 'room', id, input: { ...input, heightMm: 3000 } })
+    near(state.items.find((i) => i.id === wallId)!.quantity, 16)
+    state = f.apply({ kind: 'scale', points: [polygon[0], polygon[1]], lengthMm: 8000 })
+    near(state.items.find((i) => i.id === wallId)!.quantity, 32)
+    f.scale()
+    const request = summaryRequestSchema.parse({ projectId: f.drawing.projectId })
+    let report = f.storage.readSummary(request)
+    const row = report.rows.find((r) => r.category === 'wall')!
+    assert.equal(row.unit, 'm')
+    assert.equal(row.quantity, '15.100')
+    assert.equal(row.amount, '7550')
+    report = f.storage.editSummary({
+      request,
+      fingerprint: report.fingerprint,
+      rowId: row.id,
+      finish: { name: '壁紙ボーダー', specification: '幅100mm', unitPrice: 600 }
+    })
+    assert.equal(f.read().rooms[0].finishes.wall.unit, 'm', '集計の仕上げ編集でも計算単位を保持')
+    const estimate = f.storage.createEstimate({ request, fingerprint: report.fingerprint })
+    const line = estimate.body.lines.find((l) => l.category === 'wall')!
+    assert.equal(line.unit, 'm')
+    assert.equal(line.quantity, '15.1')
+    const snapshot = f.read(),
+      backup = join(f.folder, 'wall-m.sekisan-backup')
+    await f.storage.createBackup(backup)
+    f.apply({ kind: 'deleteRoom', id })
+    await f.storage.restoreBackup(backup)
+    assert.deepEqual(f.read(), snapshot)
+    validateTakeoffData((f.storage as unknown as { db: Database.Database }).db)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('㎡とmの切替は固定数量を解除し控除を再計算、反映前は元データと版を保持する', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const id = f.room(),
+      wall = f.read().items.find((i) => i.category === 'wall')!
+    f.apply({ kind: 'fixed', itemId: wall.id, quantity: 40 })
+    f.apply({
+      kind: 'deduction',
+      id: randomUUID(),
+      input: { targetItemId: wall.id, name: '扉', widthMm: 900, heightMm: 2100, count: 2 }
+    })
+    const before = f.read(),
+      input = roomInput()
+    input.finishes.wall = { name: 'ボーダー', unit: 'm', unitPrice: 800 }
+    const mutation = f.mutation({ kind: 'room', id, input })
+    const preview = f.storage.previewTakeoff(mutation)
+    assert.deepEqual(f.read(), before)
+    const row = preview.rows.find((r) => r.itemId === wall.id)!
+    assert.equal(row.beforeUnit, '㎡')
+    assert.equal(row.unit, 'm')
+    assert.match(preview.warnings.join(' '), /固定数量を解除/)
+    assert.match(preview.warnings.join(' '), /幅×箇所数/)
+    near(row.before!, 36.22)
+    near(row.after!, 12.2)
+    let after = f.storage.applyTakeoff(mutation)
+    assert.equal(after.items.find((i) => i.id === wall.id)!.fixedQuantity, null)
+    assert.equal(after.items.find((i) => i.id === wall.id)!.method, 'room-perimeter')
+    assert.equal(after.deductions[0].unit, 'm')
+    near(after.deductions[0].quantity, 1.8)
+    f.apply({ kind: 'fixed', itemId: wall.id, quantity: 20 })
+    after = f.apply({ kind: 'room', id, input: roomInput() })
+    assert.equal(after.items.find((i) => i.id === wall.id)!.fixedQuantity, null)
+    assert.equal(after.items.find((i) => i.id === wall.id)!.unit, '㎡')
+    assert.equal(after.items.find((i) => i.id === wall.id)!.method, 'room-wall')
+    near(after.deductions[0].quantity, 3.78)
+    validateTakeoffData((f.storage as unknown as { db: Database.Database }).db)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せずに移行する', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const first = f.room(),
+      id = randomUUID(),
+      input = roomInput()
+    input.finishes.wall = { name: 'ボーダー', unit: 'm', unitPrice: 100 }
+    const mutation = f.mutation({ kind: 'room', id, input, mergeInto: first })
+    const preview = f.storage.previewTakeoff(mutation)
+    const rows = preview.mergeSummary!.rows.filter((r) => r.category === 'wall')
+    assert.equal(rows.length, 2)
+    near(rows.find((r) => r.unit === '㎡')!.after, 33.6)
+    near(rows.find((r) => r.unit === 'm')!.after, 14)
+    f.storage.applyTakeoff(mutation)
+    const report = f.storage.readSummary(
+      summaryRequestSchema.parse({ projectId: f.drawing.projectId })
+    )
+    assert.equal(report.rows.filter((r) => r.category === 'wall').length, 2)
+    const db = (f.storage as unknown as { db: Database.Database }).db
+    db.pragma('user_version = 13')
+    assert.throws(() => validateTakeoffData(db), /v14/)
+    db.pragma('user_version = 14')
+    f.apply({ kind: 'deleteRoom', id })
+    const oldRooms = db.prepare('SELECT * FROM rooms').all()
+    const oldItems = db.prepare('SELECT * FROM takeoff_items').all()
+    db.pragma('user_version = 13')
+    f.storage.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      const migrated = (reopened as unknown as { db: Database.Database }).db
+      assert.equal(migrated.pragma('user_version', { simple: true }), 14)
+      assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
+      assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
+      assert.ok(
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v14-'))
+      )
+    } finally {
+      reopened.close()
     }
   } finally {
     f.cleanup()

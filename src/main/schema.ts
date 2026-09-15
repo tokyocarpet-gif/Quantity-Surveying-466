@@ -40,6 +40,8 @@ export const ROLL_CUT_ORDER_SQL = `PRAGMA user_version = 12;`
 
 export const ROLL_SHIPPING_SQL = `PRAGMA user_version = 13;`
 
+export const WALL_LENGTH_SQL = `PRAGMA user_version = 14;`
+
 export function initializeSchema(db: Database.Database, version: number): void {
   db.transaction(() => {
     if (version === 0) db.exec(BASE_SQL)
@@ -55,5 +57,6 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 11) db.exec(ROLL_MATERIAL_SQL)
     if (version < 12) db.exec(ROLL_CUT_ORDER_SQL)
     if (version < 13) db.exec(ROLL_SHIPPING_SQL)
+    if (version < 14) db.exec(WALL_LENGTH_SQL)
   })()
 }

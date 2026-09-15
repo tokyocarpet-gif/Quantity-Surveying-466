@@ -150,7 +150,7 @@ test('v10の材料はタイルとして退避・移行し、既存寸法を保�
       before
     )
     compare.close()
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v13-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v14-')))
   } finally {
     storage.close()
     rmSync(root, { recursive: true, force: true })
@@ -259,11 +259,11 @@ test('ロール材の取り込み・配置・バックアップ復元を保持�
       assert.equal(migrated.readLayout(roomId)!.body.rollCutMode, 'width')
       assert.equal(migrated.readLayout(roomId)!.body.maxWidthMm, null)
       const check = new Database(join(root, 'app/data/db/sekisan-kanri.db'))
-      assert.equal(check.pragma('user_version', { simple: true }), 13)
+      assert.equal(check.pragma('user_version', { simple: true }), 14)
       assert.deepEqual(check.prepare('SELECT * FROM room_layouts ORDER BY roomId').all(), rows)
       check.close()
       assert.ok(
-        readdirSync(join(root, 'app/recovery')).some((n) => n.startsWith('before-schema-v13-'))
+        readdirSync(join(root, 'app/recovery')).some((n) => n.startsWith('before-schema-v14-'))
       )
     } finally {
       migrated.close()

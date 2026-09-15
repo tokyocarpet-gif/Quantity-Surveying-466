@@ -6,6 +6,8 @@ import { idSchema } from '../shared/validation'
 import {
   categories,
   categoryUnits,
+  takeoffUnit,
+  takeoffMethod,
   deductionQuantity,
   geometry,
   mutationSchema,
@@ -232,7 +234,8 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
       room.polygon,
       after.scaleRatio,
       room.heightMm,
-      room.sleeveWalls
+      room.sleeveWalls,
+      takeoffUnit('wall', room.finishes)
     )
     for (const category of room.enabledCategories) {
       const existing = after.items.find(
@@ -245,19 +248,41 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
         pageNumber: after.pageNumber,
         category,
         source: 'auto-room',
-        method:
-          category === 'wall'
-            ? 'room-wall'
-            : category === 'baseboard'
-              ? 'room-perimeter'
-              : 'room-area',
+        method: takeoffMethod(category, takeoffUnit(category, room.finishes)),
         quantity: quantities[category],
-        unit: categoryUnits[category],
+        unit: takeoffUnit(category, room.finishes),
         finish: room.finishes[category].name,
         specification: room.finishes[category].specification ?? '',
         unitPrice: room.finishes[category].unitPrice,
         fixedQuantity: existing?.fixedQuantity ?? null,
         calculationVersion: 1
+      }
+      if (existing && existing.unit !== item.unit) {
+        warnings.push(
+          `${room.name}：壁を${existing.unit}から${item.unit}へ変更し、数量を再計算します。`
+        )
+        if (existing.fixedQuantity !== null) {
+          item.fixedQuantity = null
+          warnings.push(`${room.name}：単位が変わるため、壁の固定数量を解除します。`)
+        }
+        const deductions = after.deductions.filter((d) => d.targetItemId === item.id)
+        for (const d of deductions) {
+          d.unit = item.unit
+          d.quantity = deductionQuantity(
+            {
+              targetItemId: d.targetItemId,
+              name: d.name,
+              widthMm: d.widthMm,
+              heightMm: d.heightMm,
+              count: d.count
+            },
+            item.unit
+          )
+        }
+        if (deductions.length)
+          warnings.push(
+            `${room.name}：壁の開口控除を${item.unit === 'm' ? '幅×箇所数' : '幅×高さ×箇所数'}で再計算します。貼る位置に合った控除か確認してください。`
+          )
       }
       if (existing) Object.assign(existing, item)
       else after.items.push(item)
@@ -286,30 +311,36 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
   let mergeSummary: TakeoffPreview['mergeSummary']
   if (change.kind === 'room' && change.mergeInto) {
     const target = after.rooms.find((r) => r.id === change.mergeInto)!
-    const total = (page: PageState, c: (typeof categories)[number]): number =>
+    const total = (page: PageState, c: (typeof categories)[number], unit: string): number =>
       page.items
         .filter(
           (i) =>
             i.category === c &&
+            i.unit === unit &&
             page.rooms.some((r) => r.id === i.roomId && r.groupId === target.groupId)
         )
         .reduce((n, i) => n + netQuantity(i, page.deductions), 0)
     mergeSummary = {
       name: target.name,
-      rows: categories
-        .filter((c) =>
-          after.items.some(
-            (i) =>
-              i.category === c &&
-              after.rooms.some((r) => r.id === i.roomId && r.groupId === target.groupId)
-          )
+      rows: categories.flatMap((c) => {
+        const units = new Set(
+          [...before.items, ...after.items]
+            .filter(
+              (i) =>
+                i.category === c &&
+                [...before.rooms, ...after.rooms].some(
+                  (r) => r.id === i.roomId && r.groupId === target.groupId
+                )
+            )
+            .map((i) => i.unit)
         )
-        .map((c) => ({
+        return [...units].map((unit) => ({
           category: c,
-          before: total(before, c),
-          after: total(after, c),
-          unit: categoryUnits[c]
+          before: total(before, c, unit),
+          after: total(after, c, unit),
+          unit
         }))
+      })
     }
   }
   return {
@@ -385,7 +416,7 @@ export function applyTakeoff(db: Database.Database, raw: unknown): PageState {
     saveCounts(db, before, after)
     for (const item of after.items)
       db.prepare(
-        'INSERT INTO takeoff_items(id,roomId,drawingId,pageNumber,category,source,method,quantity,unit,finish,unitPrice,fixedQuantity,calculationVersion,specification) VALUES (@id,@roomId,@drawingId,@pageNumber,@category,@source,@method,@quantity,@unit,@finish,@unitPrice,@fixedQuantity,@calculationVersion,@specification) ON CONFLICT(id) DO UPDATE SET roomId=excluded.roomId,quantity=excluded.quantity,finish=excluded.finish,specification=excluded.specification,unitPrice=excluded.unitPrice,fixedQuantity=excluded.fixedQuantity,calculationVersion=excluded.calculationVersion'
+        'INSERT INTO takeoff_items(id,roomId,drawingId,pageNumber,category,source,method,quantity,unit,finish,unitPrice,fixedQuantity,calculationVersion,specification) VALUES (@id,@roomId,@drawingId,@pageNumber,@category,@source,@method,@quantity,@unit,@finish,@unitPrice,@fixedQuantity,@calculationVersion,@specification) ON CONFLICT(id) DO UPDATE SET roomId=excluded.roomId,method=excluded.method,unit=excluded.unit,quantity=excluded.quantity,finish=excluded.finish,specification=excluded.specification,unitPrice=excluded.unitPrice,fixedQuantity=excluded.fixedQuantity,calculationVersion=excluded.calculationVersion'
       ).run({ ...item, specification: item.specification ?? '' })
     for (const d of after.deductions)
       db.prepare(
@@ -443,7 +474,8 @@ export function validateTakeoffData(db: Database.Database): void {
         room.polygon,
         state.scaleRatio,
         room.heightMm,
-        room.sleeveWalls
+        room.sleeveWalls,
+        takeoffUnit('wall', room.finishes)
       )
       for (const c of categories) {
         const items = state.items.filter(
@@ -465,18 +497,21 @@ export function validateTakeoffData(db: Database.Database): void {
       z.string()
         .max(400)
         .parse(item.specification ?? '')
-      if (
-        item.source === 'auto-room' &&
-        item.method !==
-          (item.category === 'wall'
-            ? 'room-wall'
-            : item.category === 'baseboard'
-              ? 'room-perimeter'
-              : 'room-area')
-      )
+      const room = state.rooms.find((r) => r.id === item.roomId)
+      const expectedUnit =
+        room && item.source === 'auto-room'
+          ? takeoffUnit(item.category, room.finishes)
+          : categoryUnits[item.category]
+      if (item.source === 'auto-room' && item.method !== takeoffMethod(item.category, expectedUnit))
         throw new Error('部位と計算方式が一致しません。')
-      if (item.unit !== categoryUnits[item.category] || item.calculationVersion !== 1)
+      if (item.unit !== expectedUnit || item.calculationVersion !== 1)
         throw new Error('数量の単位・計算バージョンが不正です。')
+      if (
+        (db.pragma('user_version', { simple: true }) as number) < 14 &&
+        item.category === 'wall' &&
+        item.unit === 'm'
+      )
+        throw new Error('壁の延長mはDB v14以降で保存してください。')
       z.number().finite().min(0).max(1e12).parse(item.quantity)
       z.number().finite().min(0).max(1e12).nullable().parse(item.fixedQuantity)
       z.number().finite().min(0).max(1e9).nullable().parse(item.unitPrice)

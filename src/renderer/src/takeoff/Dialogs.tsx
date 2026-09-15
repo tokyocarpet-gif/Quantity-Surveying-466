@@ -73,7 +73,7 @@ export function PreviewDialog({
           <div className="scale-summary">
             <strong>{preview.mergeSummary.name} · 統合後の合計</strong>
             {preview.mergeSummary.rows.map((r) => (
-              <p key={r.category}>
+              <p key={`${r.category}-${r.unit}`}>
                 {partLabel(r.category)}：{quantityText(r.before)} → {quantityText(r.after)} {r.unit}
               </p>
             ))}
@@ -99,7 +99,10 @@ export function PreviewDialog({
                       {partLabel(row.category)} {row.fixed ? '・数量固定' : ''}
                     </small>
                   </td>
-                  <td>{quantityText(row.before)}</td>
+                  <td>
+                    {quantityText(row.before)}
+                    {row.beforeUnit ? ` ${row.beforeUnit}` : ''}
+                  </td>
                   <td className={row.after !== null && row.after < 0 ? 'negative' : ''}>
                     {quantityText(row.after)}
                   </td>

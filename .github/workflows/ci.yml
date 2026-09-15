@@ -23,6 +23,7 @@ jobs:
       - run: npm test
       - run: node scripts/e2e.mjs
       - run: node scripts/material-keyboard-e2e.mjs
+      - run: node scripts/wall-length-e2e.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

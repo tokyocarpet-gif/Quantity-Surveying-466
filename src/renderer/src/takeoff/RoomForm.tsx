@@ -5,6 +5,7 @@ import {
   categories,
   categoryLabels,
   categoryUnits,
+  takeoffUnit,
   emptyFinishes,
   roomInputSchema,
   roomQuantities,
@@ -50,7 +51,13 @@ export function RoomForm({
   const [height, setHeight] = useState(String(room?.heightMm ?? heightHistory[0] ?? 2400))
   let quantities: Record<string, number> | null = null
   try {
-    quantities = roomQuantities(polygon, scale, Number(height), room?.sleeveWalls)
+    quantities = roomQuantities(
+      polygon,
+      scale,
+      Number(height),
+      room?.sleeveWalls,
+      takeoffUnit('wall', finishes)
+    )
   } catch {
     /* Validation appears on submit. */
   }
@@ -71,7 +78,13 @@ export function RoomForm({
             sleeveWalls: room?.sleeveWalls ?? [],
             enabledCategories: enabled
           })
-          roomQuantities(polygon, scale, input.heightMm, input.sleeveWalls)
+          roomQuantities(
+            polygon,
+            scale,
+            input.heightMm,
+            input.sleeveWalls,
+            takeoffUnit('wall', input.finishes)
+          )
           save(input)
         } catch (e) {
           setError(e instanceof Error ? e.message : '入力を確認してください。')
@@ -208,16 +221,43 @@ export function RoomForm({
               <div>
                 <strong>{categoryLabels[c]}</strong>
                 <span>
-                  {quantities ? quantityText(quantities[c]) : '—'} {categoryUnits[c]}
+                  {quantities ? quantityText(quantities[c]) : '—'} {takeoffUnit(c, finishes)}
                 </span>
               </div>
               {enabled.includes(c) && (
                 <>
+                  {c === 'wall' && (
+                    <>
+                      <label>
+                        壁の拾い方
+                        <select
+                          aria-label="壁の拾い方"
+                          value={takeoffUnit(c, finishes)}
+                          onChange={(e) =>
+                            setFinishes((f) => ({
+                              ...f,
+                              wall: { ...f.wall, unit: e.target.value as '㎡' | 'm' }
+                            }))
+                          }
+                        >
+                          <option value="㎡">面積（㎡）：周長×高さ</option>
+                          <option value="m">延長（m）：周長</option>
+                        </select>
+                      </label>
+                      {takeoffUnit(c, finishes) === 'm' && (
+                        <p className="panel-description">
+                          部屋を一周する長さです。高さは掛けません。袖壁は面数分を加え、貼らない開口の幅は保存後に控除できます。
+                        </p>
+                      )}
+                    </>
+                  )}
                   <MaterialInput
                     label={`${categoryLabels[c]}の仕上げ`}
                     value={finishes[c].name}
                     materials={materials.filter(
-                      (m) => m.category === c && m.unit === categoryUnits[c]
+                      (m) =>
+                        m.category === c &&
+                        (m.unit === categoryUnits[c] || (c === 'wall' && m.unit === 'm'))
                     )}
                     onChange={(name) => setFinishes((f) => ({ ...f, [c]: { ...f[c], name } }))}
                     onSelect={(m) =>
@@ -225,6 +265,7 @@ export function RoomForm({
                         ...f,
                         [c]: {
                           name: m.name,
+                          ...(c === 'wall' ? { unit: m.unit as '㎡' | 'm' } : {}),
                           specification: materialSpecification(m),
                           unitPrice: m.unitPrice
                         }
@@ -263,7 +304,7 @@ export function RoomForm({
                       }
                       placeholder="単価（任意）"
                     />
-                    <span>円/{categoryUnits[c]}</span>
+                    <span>円/{takeoffUnit(c, finishes)}</span>
                   </label>
                 </>
               )}
