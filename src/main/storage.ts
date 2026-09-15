@@ -47,7 +47,8 @@ import {
   ROLL_MATERIAL_SQL,
   ROLL_CUT_ORDER_SQL,
   ROLL_SHIPPING_SQL,
-  WALL_LENGTH_SQL
+  WALL_LENGTH_SQL,
+  WALL_LINE_SQL
 } from './schema'
 import {
   TAKEOFF_SQL,
@@ -85,7 +86,8 @@ const manifestSchema = z
       z.literal(11),
       z.literal(12),
       z.literal(13),
-      z.literal(14)
+      z.literal(14),
+      z.literal(15)
     ]),
     createdAt: z.string().datetime(),
     files: z
@@ -131,13 +133,13 @@ export class Storage {
     try {
       this.db.pragma('foreign_keys = ON')
       const version = this.db.pragma('user_version', { simple: true }) as number
-      if (version > 14)
+      if (version > 15)
         throw new Error('このデータは新しいバージョンの積算管理で作成されています。')
-      if (version > 0 && version < 14) {
+      if (version > 0 && version < 15) {
         const migrationPath = join(
           this.root,
           'recovery',
-          `before-schema-v14-${Date.now()}-${randomUUID()}.db`
+          `before-schema-v15-${Date.now()}-${randomUUID()}.db`
         )
         mkdirSync(dirname(migrationPath), { recursive: true })
         this.db.prepare('VACUUM INTO ?').run(migrationPath)
@@ -206,6 +208,8 @@ export class Storage {
     if (!room) throw new Error('対象の部屋がありません。')
     const page = this.readTakeoff(room)
     const selected = page.rooms.find((r) => r.id === input.roomId)!
+    if (selected.geometryType === 'wall-line')
+      throw new Error('壁の線拾いは床材割り付けの対象外です。')
     if (!page.scaleRatio || layoutSourceKey(selected.polygon, page.scaleRatio) !== input.sourceKey)
       throw new Error('部屋の形状または縮尺が変わりました。割り付けを開き直してください。')
     const saved = this.readLayout(input.roomId)
@@ -516,7 +520,7 @@ export class Storage {
       const createdAt = now()
       const manifest = Buffer.from(
         JSON.stringify(
-          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 14, createdAt, files },
+          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 15, createdAt, files },
           null,
           2
         )
@@ -607,6 +611,7 @@ export class Storage {
         if (manifest.schemaVersion >= 12) reference.exec(ROLL_CUT_ORDER_SQL)
         if (manifest.schemaVersion >= 13) reference.exec(ROLL_SHIPPING_SQL)
         if (manifest.schemaVersion >= 14) reference.exec(WALL_LENGTH_SQL)
+        if (manifest.schemaVersion >= 15) reference.exec(WALL_LINE_SQL)
         if (JSON.stringify(schema(db)) !== JSON.stringify(schema(reference)))
           throw new Error('このアプリのデータ形式と一致しません。')
       } finally {
@@ -671,7 +676,7 @@ export class Storage {
     } finally {
       db.close()
     }
-    if (manifest.schemaVersion < 14) {
+    if (manifest.schemaVersion < 15) {
       const staged = new Database(join(target, DATABASE))
       try {
         staged.pragma('foreign_keys = ON')

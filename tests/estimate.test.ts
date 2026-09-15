@@ -324,11 +324,11 @@ test('v4からv8へ退避して移行し、旧バックアップを復元する'
   const storage = new Storage(root)
   try {
     assert.equal(storage.workspace().clients[0].name, '旧顧客')
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v14-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v15-')))
     await storage.restoreBackup(backup)
     assert.equal(storage.workspace().clients[0].id, id)
     const db = new Database(path, { readonly: true })
-    assert.equal(db.pragma('user_version', { simple: true }), 14)
+    assert.equal(db.pragma('user_version', { simple: true }), 15)
     db.close()
   } finally {
     storage.close()

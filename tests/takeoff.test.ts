@@ -9,6 +9,7 @@ import AdmZip from 'adm-zip'
 import { PDFDocument } from 'pdf-lib'
 import { summaryRequestSchema } from '../src/shared/summary'
 import { validateTakeoffData } from '../src/main/takeoff-storage'
+import { defaultLayout, layoutSourceKey } from '../src/shared/layout'
 import { Storage } from '../src/main/storage'
 import { BASE_SQL } from '../src/main/schema'
 import {
@@ -16,6 +17,8 @@ import {
   emptyFinishes,
   geometry,
   roomQuantities,
+  wallLineLength,
+  roomInputSchema,
   scaleFromCalibration,
   scaleDenominator,
   netQuantity,
@@ -494,7 +497,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 14)
+    assert.equal(internal.pragma('user_version', { simple: true }), 15)
   } finally {
     f.cleanup()
   }
@@ -1145,20 +1148,153 @@ test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せ
     f.apply({ kind: 'deleteRoom', id })
     const oldRooms = db.prepare('SELECT * FROM rooms').all()
     const oldItems = db.prepare('SELECT * FROM takeoff_items').all()
+    db.exec('ALTER TABLE rooms DROP COLUMN geometryType')
     db.pragma('user_version = 13')
     f.storage.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       const migrated = (reopened as unknown as { db: Database.Database }).db
-      assert.equal(migrated.pragma('user_version', { simple: true }), 14)
+      assert.equal(migrated.pragma('user_version', { simple: true }), 15)
       assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
       assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
       assert.ok(
-        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v14-'))
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v15-'))
       )
     } finally {
       reopened.close()
     }
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('壁の線拾いは1面・2面を閉じず、指定した線長×高さまたは延長を求める', () => {
+  const one = polygon.slice(0, 2),
+    two = polygon.slice(0, 3)
+  near(roomQuantities(one, 0.01, 2400, [], '㎡', 'wall-line').wall, 9.6)
+  near(roomQuantities(two, 0.01, 2400, [], '㎡', 'wall-line').wall, 16.8)
+  near(roomQuantities(two, 0.01, 5000, [], 'm', 'wall-line').wall, 7)
+  near(roomQuantities(two, 0.01, 2400, [], '㎡', 'wall-line').floor, 0)
+  near(wallLineLength([...two].reverse()), 700)
+  near(
+    wallLineLength([
+      { x: 0, y: 0 },
+      { x: 300, y: 400 }
+    ]),
+    500
+  )
+  assert.throws(() => wallLineLength([polygon[0]]))
+  assert.throws(() => wallLineLength([polygon[0], polygon[0]]))
+  assert.throws(() => wallLineLength([...two, two[0]]))
+  assert.throws(() =>
+    roomInputSchema.parse({ ...roomInput(), geometryType: 'wall-line', polygon: two })
+  )
+})
+
+test('壁線の編集・控除・縮尺・固定・集計見積・バックアップ復元と床割付対象外', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const id = randomUUID()
+    const input: RoomInput = {
+      ...roomInput(),
+      name: 'アクセント壁',
+      geometryType: 'wall-line',
+      polygon: polygon.slice(0, 3),
+      enabledCategories: ['wall', 'baseboard']
+    }
+    input.finishes.wall = { name: 'アクセントクロス', unitPrice: 1000 }
+    let state = f.apply({ kind: 'room', id, input })
+    let wall = state.items.find((i) => i.roomId === id && i.category === 'wall')!
+    near(wall.quantity, 16.8)
+    assert.equal(state.rooms[0].geometryType, 'wall-line')
+    assert.equal(state.items.length, 2)
+    state = f.apply({
+      kind: 'deduction',
+      id: randomUUID(),
+      input: { targetItemId: wall.id, name: 'ドア', widthMm: 900, heightMm: 2000, count: 1 }
+    })
+    near(
+      netQuantity(
+        state.items.find((i) => i.id === wall.id)!,
+        state.deductions
+      ),
+      15
+    )
+    state = f.apply({ kind: 'room', id, input: { ...input, heightMm: 3000 } })
+    near(state.items.find((i) => i.id === wall.id)!.quantity, 21)
+    f.apply({ kind: 'fixed', itemId: wall.id, quantity: 20 })
+    state = f.apply({ kind: 'scale', points: [polygon[0], polygon[1]], lengthMm: 8000 })
+    near(state.items.find((i) => i.id === wall.id)!.quantity, 42)
+    near(
+      netQuantity(
+        state.items.find((i) => i.id === wall.id)!,
+        state.deductions
+      ),
+      18.2
+    )
+    f.apply({ kind: 'fixed', itemId: wall.id, quantity: null })
+    f.scale()
+    state = f.apply({ kind: 'room', id, input: { ...input, polygon: polygon.slice(0, 2) } })
+    near(state.items.find((i) => i.id === wall.id)!.quantity, 9.6)
+    const request = summaryRequestSchema.parse({ projectId: f.drawing.projectId })
+    const report = f.storage.readSummary(request)
+    assert.equal(report.rows.find((r) => r.category === 'wall')!.quantity, '7.800')
+    const estimate = f.storage.createEstimate({ request, fingerprint: report.fingerprint })
+    assert.equal(estimate.body.lines.find((l) => l.category === 'wall')!.quantity, '7.8')
+    assert.throws(
+      () =>
+        f.storage.saveLayout({
+          roomId: id,
+          expectedRevision: 0,
+          sourceKey: layoutSourceKey(state.rooms[0].polygon, state.scaleRatio!),
+          body: { ...defaultLayout(), widthMm: 500, heightMm: 500 }
+        }),
+      /対象外/
+    )
+    const snapshot = f.read(),
+      backup = join(f.folder, 'wall-lines.sekisan-backup')
+    await f.storage.createBackup(backup)
+    f.apply({ kind: 'deleteRoom', id })
+    assert.equal(f.read().deductions.length, 0)
+    await f.storage.restoreBackup(backup)
+    assert.deepEqual(f.read(), snapshot)
+    validateTakeoffData((f.storage as unknown as { db: Database.Database }).db)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('壁線を既存部屋と同名統合しても別仕上げを維持し既存の壁は自動控除しない', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const roomId = f.room(),
+      before = f.read(),
+      id = randomUUID()
+    const input: RoomInput = {
+      ...roomInput(),
+      geometryType: 'wall-line',
+      polygon: polygon.slice(0, 2),
+      enabledCategories: ['wall']
+    }
+    input.finishes.wall = { name: 'ボーダー', unit: 'm', unitPrice: 600 }
+    const mutation = f.mutation({ kind: 'room', id, input, mergeInto: roomId })
+    const preview = f.storage.previewTakeoff(mutation)
+    assert.match(preview.warnings.join(' '), /自動控除しません/)
+    assert.deepEqual(f.read(), before)
+    const state = f.storage.applyTakeoff(mutation)
+    assert.equal(state.rooms.find((r) => r.id === id)!.groupId, roomId)
+    assert.deepEqual(
+      state.items.filter((i) => i.roomId === roomId),
+      before.items
+    )
+    near(state.items.find((i) => i.roomId === id)!.quantity, 4)
+    assert.throws(() => f.apply({ kind: 'room', id, input: roomInput() }), /相互に変更できません/)
+    const report = f.storage.readSummary(
+      summaryRequestSchema.parse({ projectId: f.drawing.projectId })
+    )
+    assert.equal(report.rows.filter((r) => r.category === 'wall').length, 2)
   } finally {
     f.cleanup()
   }

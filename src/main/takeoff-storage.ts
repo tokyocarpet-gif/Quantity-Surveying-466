@@ -10,6 +10,7 @@ import {
   takeoffMethod,
   deductionQuantity,
   geometry,
+  wallLineLength,
   mutationSchema,
   netQuantity,
   numberedRoomName,
@@ -118,11 +119,21 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
     after.scaleRatio = scaleFromCalibration(change.points, change.lengthMm)
     after.calibration = { points: change.points, lengthMm: change.lengthMm }
   } else if (change.kind === 'room') {
-    geometry(change.input.polygon)
+    if (change.input.geometryType === 'wall-line') wallLineLength(change.input.polygon)
+    else geometry(change.input.polygon)
     if (after.scaleRatio === null) throw new Error('このページの縮尺を設定してください。')
     const index = after.rooms.findIndex((r) => r.id === change.id)
     if (index < 0 && db.prepare('SELECT id FROM rooms WHERE id=?').get(change.id))
       throw new Error('別ページの部屋は変更できません。')
+    if (
+      index >= 0 &&
+      (after.rooms[index].geometryType ?? 'area') !== (change.input.geometryType ?? 'area')
+    )
+      throw new Error('部屋と壁の線拾いは相互に変更できません。別の拾いとして追加してください。')
+    if (change.input.geometryType === 'wall-line')
+      warnings.push(
+        '指定した壁の線を別の数量として追加します。既存の部屋の壁数量からは自動控除しません。一般壁とアクセント壁の重複を確認してください。'
+      )
     const previousGroup = index < 0 ? change.id : after.rooms[index].groupId
     const duplicates = after.rooms.filter(
       (r) => r.name === change.input.name && r.groupId !== previousGroup
@@ -235,7 +246,8 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
       after.scaleRatio,
       room.heightMm,
       room.sleeveWalls,
-      takeoffUnit('wall', room.finishes)
+      takeoffUnit('wall', room.finishes),
+      room.geometryType
     )
     for (const category of room.enabledCategories) {
       const existing = after.items.find(
@@ -376,9 +388,10 @@ export function applyTakeoff(db: Database.Database, raw: unknown): PageState {
         db.prepare('DELETE FROM rooms WHERE id=?').run(r.id)
     for (const room of after.rooms)
       db.prepare(
-        'INSERT INTO rooms(id,drawingId,pageNumber,name,color,heightMm,polygon,finishes,enabledCategories,groupId,sleeveWalls) VALUES (@id,@drawingId,@pageNumber,@name,@color,@heightMm,@polygon,@finishes,@enabledCategories,@groupId,@sleeveWalls) ON CONFLICT(id) DO UPDATE SET name=excluded.name,color=excluded.color,heightMm=excluded.heightMm,polygon=excluded.polygon,finishes=excluded.finishes,enabledCategories=excluded.enabledCategories,groupId=excluded.groupId,sleeveWalls=excluded.sleeveWalls'
+        'INSERT INTO rooms(id,drawingId,pageNumber,name,color,heightMm,polygon,finishes,enabledCategories,groupId,sleeveWalls,geometryType) VALUES (@id,@drawingId,@pageNumber,@name,@color,@heightMm,@polygon,@finishes,@enabledCategories,@groupId,@sleeveWalls,@geometryType) ON CONFLICT(id) DO UPDATE SET name=excluded.name,color=excluded.color,heightMm=excluded.heightMm,polygon=excluded.polygon,finishes=excluded.finishes,enabledCategories=excluded.enabledCategories,groupId=excluded.groupId,sleeveWalls=excluded.sleeveWalls,geometryType=excluded.geometryType'
       ).run({
         ...room,
+        geometryType: room.geometryType ?? 'area',
         polygon: JSON.stringify(room.polygon),
         finishes: JSON.stringify(room.finishes),
         sleeveWalls: JSON.stringify(room.sleeveWalls),
@@ -456,6 +469,7 @@ export function validateTakeoffData(db: Database.Database): void {
         color: room.color,
         heightMm: room.heightMm,
         polygon: room.polygon,
+        geometryType: room.geometryType,
         finishes: room.finishes,
         sleeveWalls: room.sleeveWalls,
         enabledCategories: room.enabledCategories
@@ -475,7 +489,8 @@ export function validateTakeoffData(db: Database.Database): void {
         state.scaleRatio,
         room.heightMm,
         room.sleeveWalls,
-        takeoffUnit('wall', room.finishes)
+        takeoffUnit('wall', room.finishes),
+        room.geometryType
       )
       for (const c of categories) {
         const items = state.items.filter(

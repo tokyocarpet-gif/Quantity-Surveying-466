@@ -31,7 +31,10 @@ export function saveLayout(db: Database.Database, raw: unknown): LayoutDoc {
       .get(input.roomId) as { drawingId: string; pageNumber: number } | undefined
     if (!room) throw new Error('対象の部屋がありません。')
     const page = readTakeoff(db, room)
-    const polygon = page.rooms.find((r) => r.id === input.roomId)!.polygon
+    const selected = page.rooms.find((r) => r.id === input.roomId)!
+    if (selected.geometryType === 'wall-line')
+      throw new Error('壁の線拾いは床材割り付けの対象外です。')
+    const polygon = selected.polygon
     if (!page.scaleRatio || layoutSourceKey(polygon, page.scaleRatio) !== input.sourceKey)
       throw new Error('部屋の形状または縮尺が変わりました。割り付けを開き直してください。')
     const old = readLayout(db, input.roomId)
@@ -58,6 +61,14 @@ export function validateLayouts(db: Database.Database): void {
     body: string
   }[]) {
     idSchema.parse(row.roomId)
+    if (
+      (db.pragma('user_version', { simple: true }) as number) >= 15 &&
+      (
+        db.prepare('SELECT geometryType FROM rooms WHERE id=?').get(row.roomId) as
+          { geometryType: string } | undefined
+      )?.geometryType === 'wall-line'
+    )
+      throw new Error('壁の線拾いに床材割り付けは保存できません。')
     layoutSaveSchema.parse({
       roomId: row.roomId,
       expectedRevision: row.revision,

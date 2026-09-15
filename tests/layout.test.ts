@@ -214,14 +214,14 @@ test('v8からv9への移行は材料を保持して事前退避する', () => {
   initializeSchema(db, 0)
   // Recreate a genuine v8 schema by removing only the v9 additions.
   db.exec(
-    'ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; PRAGMA user_version=8;'
+    'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; PRAGMA user_version=8;'
   )
   db.close()
   const s = new Storage(root)
   try {
     assert.equal(s.readMaterials(null).global.length, 9)
     assert.equal(s.readMaterials(null).global[0].tileWidthMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v14-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v15-')))
   } finally {
     s.close()
     rmSync(root, { recursive: true, force: true })
@@ -245,7 +245,7 @@ test('v9の仕様文・寸法・保存済み目地を残して厚み未設定で
     db = new Database(path)
   initializeSchema(db, 0)
   db.exec(
-    'ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; PRAGMA user_version=9;'
+    'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; PRAGMA user_version=9;'
   )
   db.prepare(
     "UPDATE materials SET specification=?,tileWidthMm=450,tileHeightMm=900,tileGapMm=2 WHERE category='floor'"
@@ -259,7 +259,7 @@ test('v9の仕様文・寸法・保存済み目地を残して厚み未設定で
     assert.equal(material.tileHeightMm, 900)
     assert.equal(material.tileGapMm, 2)
     assert.equal(material.tileThicknessMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v14-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v15-')))
   } finally {
     storage.close()
     rmSync(root, { recursive: true, force: true })

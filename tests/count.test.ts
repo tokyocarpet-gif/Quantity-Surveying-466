@@ -228,14 +228,14 @@ test('個数と図面位置をバックアップ・復元・再起動で保持�
     reopened.close()
     const db = new Database(join(f.root, 'app/data/db/sekisan-kanri.db'))
     db.exec(
-      'ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; ALTER TABLE projects DROP COLUMN assignee; DROP TABLE count_groups; PRAGMA user_version=6;'
+      'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; ALTER TABLE projects DROP COLUMN assignee; DROP TABLE count_groups; PRAGMA user_version=6;'
     )
     db.close()
     const migrated = new Storage(join(f.root, 'app'))
     assert.equal(migrated.readTakeoff(f.address).counts?.length, 0)
     migrated.close()
     const snapshots = readdirSync(join(f.root, 'app/recovery')).filter((n) =>
-      n.startsWith('before-schema-v14-')
+      n.startsWith('before-schema-v15-')
     )
     assert.equal(snapshots.length, 1)
     const old = new Database(join(f.root, 'app/recovery', snapshots[0]), { readonly: true })
@@ -286,7 +286,7 @@ test('個数保存の途中失敗は巻き戻し、不正な点のバックア�
     assert.deepEqual(f.s.readTakeoff(f.address), before)
     const old = new Database(path)
     old.exec(
-      'ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; ALTER TABLE projects DROP COLUMN assignee; DROP TABLE count_groups; PRAGMA user_version=6'
+      'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; ALTER TABLE projects DROP COLUMN assignee; DROP TABLE count_groups; PRAGMA user_version=6'
     )
     old.close()
     const oldBytes = readFileSync(path)

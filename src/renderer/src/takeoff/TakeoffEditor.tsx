@@ -29,6 +29,7 @@ import {
   categoryLabels,
   distance,
   geometry,
+  wallLineLength,
   netQuantity,
   roomInputOf,
   type SleeveWall,
@@ -46,7 +47,7 @@ import { PreviewDialog, quantityText, scaleText, TakeoffDialog } from './Dialogs
 import { SleeveWallDialog } from './SleeveWallDialog'
 import { RoomForm } from './RoomForm'
 
-type Tool = 'select' | 'pan' | 'scale' | 'room' | 'sleeve' | 'count' | 'count-remove'
+type Tool = 'select' | 'pan' | 'scale' | 'room' | 'wall' | 'sleeve' | 'count' | 'count-remove'
 export function TakeoffEditor({
   drawing,
   initialSelectedId = null,
@@ -75,9 +76,12 @@ export function TakeoffEditor({
   const [points, setPoints] = useState<Point[]>([]),
     [cursor, setCursor] = useState<Point | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId)
-  const [editor, setEditor] = useState<{ id: string; room: Room | null; polygon: Point[] } | null>(
-    null
-  )
+  const [editor, setEditor] = useState<{
+    id: string
+    room: Room | null
+    polygon: Point[]
+    geometryType?: Room['geometryType']
+  } | null>(null)
   const [countEditor, setCountEditor] = useState<{ id: string; input: CountInput } | null>(null)
   const [countDelete, setCountDelete] = useState<string | null>(null)
   const countInputOf = (c: CountGroup): CountInput => ({
@@ -218,24 +222,33 @@ export function TakeoffEditor({
   const startRoom = (): void => {
     if (!state?.scaleRatio) return
     setError('')
-    setMode('room')
+    setMode((editor?.geometryType ?? editor?.room?.geometryType) === 'wall-line' ? 'wall' : 'room')
     setPoints([])
     setCursor(null)
   }
   const finish = (input = points): void => {
     const polygon = input.filter((p, index) => index === 0 || distance(p, input[index - 1]) > 1e-6)
-    if (polygon.length > 2 && distance(polygon[0], polygon.at(-1)!) < 1e-6) polygon.pop()
+    const geometryType = mode === 'wall' ? 'wall-line' : 'area'
+    if (
+      geometryType === 'area' &&
+      polygon.length > 2 &&
+      distance(polygon[0], polygon.at(-1)!) < 1e-6
+    )
+      polygon.pop()
     try {
-      geometry(polygon)
+      if (geometryType === 'wall-line') wallLineLength(polygon)
+      else geometry(polygon)
       setEditor((current) =>
-        current ? { ...current, polygon } : { id: crypto.randomUUID(), room: null, polygon }
+        current
+          ? { ...current, polygon, geometryType }
+          : { id: crypto.randomUUID(), room: null, polygon, geometryType }
       )
       clearDrawing()
       setRightOpen(true)
       setError('')
     } catch (e) {
       setError(
-        `${e instanceof Error ? e.message : '部屋を囲んでください。'} 袖壁の往復線は輪郭に含めず、外周で部屋を登録してから「袖壁」で追加してください。`
+        `${e instanceof Error ? e.message : '形状を確認してください。'} ${geometryType === 'wall-line' ? '壁の始点・角・終点を指定し、線を閉じずに確定してください。' : '袖壁の往復線は輪郭に含めず、外周で部屋を登録してから「袖壁」で追加してください。'}`
       )
     }
   }
@@ -248,7 +261,7 @@ export function TakeoffEditor({
       )
         return
       if (busy || preview || opening || fixed || scaleDialog || sleeve) return
-      if (event.key === 'Enter' && mode === 'room' && !rectangle) {
+      if (event.key === 'Enter' && ((mode === 'room' && !rectangle) || mode === 'wall')) {
         event.preventDefault()
         finish()
       }
@@ -372,14 +385,24 @@ export function TakeoffEditor({
         .sort((a, b) => distance(point, a) - distance(point, b))[0]
       if (closest) return closest
     }
-    return ((mode === 'room' && !rectangle) || mode === 'sleeve' || mode === 'scale') &&
+    return ((mode === 'room' && !rectangle) ||
+      mode === 'wall' ||
+      mode === 'sleeve' ||
+      mode === 'scale') &&
       points.length > 0
       ? axisAssistPoint(point, points.at(-1)!, dimensions.scale)
       : point
   }
   function clickDrawing(event: PointerEvent<SVGSVGElement>, dimensions: PdfView): void {
     if (busy || event.button !== 0 || event.detail > 1) return
-    if (mode !== 'scale' && mode !== 'room' && mode !== 'sleeve' && mode !== 'count') return
+    if (
+      mode !== 'scale' &&
+      mode !== 'room' &&
+      mode !== 'wall' &&
+      mode !== 'sleeve' &&
+      mode !== 'count'
+    )
+      return
     event.currentTarget.focus({ preventScroll: true })
     const point = logicalPoint(event, dimensions)
     if (mode === 'count' && countEditor) {
@@ -423,6 +446,11 @@ export function TakeoffEditor({
       } else setPoints([point])
       return
     }
+    if (mode === 'wall') {
+      if (!points.length || distance(points.at(-1)!, point) >= 0.01)
+        setPoints((old) => (old.length < 500 ? [...old, point] : old))
+      return
+    }
     if (rectangle && points.length === 1) {
       const a = points[0]
       finish([a, { x: point.x, y: a.y }, point, { x: a.x, y: point.y }])
@@ -450,7 +478,7 @@ export function TakeoffEditor({
           : [...points, cursor]
     return (
       <svg
-        className={`takeoff-overlay ${mode === 'room' || mode === 'scale' || mode === 'sleeve' || mode === 'count' ? 'crosshair' : ''}`}
+        className={`takeoff-overlay ${mode === 'room' || mode === 'wall' || mode === 'scale' || mode === 'sleeve' || mode === 'count' ? 'crosshair' : ''}`}
         data-testid="drawing-overlay"
         tabIndex={0}
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
@@ -458,44 +486,55 @@ export function TakeoffEditor({
         onPointerUp={(e) => clickDrawing(e, dimensions)}
         onPointerLeave={() => setCursor(null)}
         onPointerMove={(e) => {
-          if (mode === 'room' || mode === 'scale' || mode === 'sleeve' || mode === 'count')
+          if (
+            mode === 'room' ||
+            mode === 'wall' ||
+            mode === 'scale' ||
+            mode === 'sleeve' ||
+            mode === 'count'
+          )
             setCursor(logicalPoint(e, dimensions))
         }}
         onDoubleClick={(e) => {
-          if (mode === 'room' && !rectangle) {
+          if ((mode === 'room' && !rectangle) || mode === 'wall') {
             e.preventDefault()
             finish()
           }
         }}
       >
-        {state?.rooms.map((room) => (
-          <g key={room.id}>
-            <polygon
-              points={shape(room.polygon)}
-              fill={room.color}
-              fillOpacity={room.id === selectedId ? 0.2 : 0.09}
-              stroke={room.color}
-              strokeWidth={room.id === selectedId ? 2.5 : 1.5}
-              vectorEffect="non-scaling-stroke"
-              data-room-id={room.id}
-              onPointerUp={(e) => {
-                if (mode === 'select' && e.button === 0) {
-                  e.stopPropagation()
-                  selectRoom(room)
+        {state?.rooms.map((room) => {
+          const Shape = room.geometryType === 'wall-line' ? 'polyline' : 'polygon'
+          return (
+            <g key={room.id}>
+              <Shape
+                points={shape(room.polygon)}
+                fill={room.geometryType === 'wall-line' ? 'none' : room.color}
+                fillOpacity={room.id === selectedId ? 0.2 : 0.09}
+                stroke={room.color}
+                strokeWidth={
+                  room.geometryType === 'wall-line' ? 5 : room.id === selectedId ? 2.5 : 1.5
                 }
-              }}
-            />
-            <text
-              x={room.polygon.reduce((s, p) => s + p.x, 0) / room.polygon.length}
-              y={room.polygon.reduce((s, p) => s + p.y, 0) / room.polygon.length}
-              textAnchor="middle"
-              fontSize={12 / dimensions.scale}
-              className="room-map-label"
-            >
-              {room.name}
-            </text>
-          </g>
-        ))}
+                vectorEffect="non-scaling-stroke"
+                data-room-id={room.id}
+                onPointerUp={(e) => {
+                  if (mode === 'select' && e.button === 0) {
+                    e.stopPropagation()
+                    selectRoom(room)
+                  }
+                }}
+              />
+              <text
+                x={room.polygon.reduce((s, p) => s + p.x, 0) / room.polygon.length}
+                y={room.polygon.reduce((s, p) => s + p.y, 0) / room.polygon.length}
+                textAnchor="middle"
+                fontSize={12 / dimensions.scale}
+                className="room-map-label"
+              >
+                {room.name}
+              </text>
+            </g>
+          )
+        })}
         {state?.rooms.flatMap((room) =>
           room.sleeveWalls.map((wall) => (
             <g
@@ -593,9 +632,17 @@ export function TakeoffEditor({
           ))
         )}
         {editor && (
-          <polygon
-            points={shape(editor.polygon)}
-            fill="#207964"
+          <polyline
+            points={shape(
+              (editor.geometryType ?? editor.room?.geometryType) === 'wall-line'
+                ? editor.polygon
+                : [...editor.polygon, editor.polygon[0]]
+            )}
+            fill={
+              (editor.geometryType ?? editor.room?.geometryType) === 'wall-line'
+                ? 'none'
+                : '#207964'
+            }
             fillOpacity=".05"
             stroke="#176556"
             strokeWidth="2"
@@ -682,6 +729,7 @@ export function TakeoffEditor({
               { tool: 'pan', label: 'パン', Icon: Hand },
               { tool: 'scale', label: '縮尺', Icon: Ruler },
               { tool: 'room', label: '部屋', Icon: SquareDashed },
+              { tool: 'wall', label: '壁（線）', Icon: Pencil },
               { tool: 'sleeve', label: '袖壁', Icon: Pencil },
               { tool: 'count', label: '個数', Icon: Plus }
             ] as const
@@ -691,7 +739,7 @@ export function TakeoffEditor({
               className={`tool-button ${mode === tool ? 'active' : ''}`}
               aria-pressed={mode === tool}
               title={
-                tool === 'room' && !state.scaleRatio
+                (tool === 'room' || tool === 'wall') && !state.scaleRatio
                   ? '先に縮尺で既知の長さを設定してください'
                   : tool === 'pan'
                     ? '左ドラッグで図面を移動（右ドラッグはどのツールでも利用可能）'
@@ -699,8 +747,9 @@ export function TakeoffEditor({
               }
               disabled={
                 busy ||
-                (tool === 'room' && (!state.scaleRatio || !mastersLoaded)) ||
-                (tool === 'sleeve' && (!selected || !canAddOpening))
+                ((tool === 'room' || tool === 'wall') && (!state.scaleRatio || !mastersLoaded)) ||
+                (tool === 'sleeve' &&
+                  (!selected || selected.geometryType === 'wall-line' || !canAddOpening))
               }
               onClick={() => {
                 if (tool === 'pan') {
@@ -747,7 +796,7 @@ export function TakeoffEditor({
                 setRectangle(e.target.checked)
                 setPoints([])
               }}
-              disabled={busy}
+              disabled={busy || mode === 'wall'}
             />
             矩形
           </label>
@@ -773,17 +822,21 @@ export function TakeoffEditor({
           >
             <Undo2 size={17} />
           </button>
-          {mode === 'room' && (
+          {(mode === 'room' || mode === 'wall') && (
             <button
               className="tool-button"
-              disabled={points.length < 3 || rectangle}
+              disabled={mode === 'wall' ? points.length < 2 : points.length < 3 || rectangle}
               onClick={() => finish()}
             >
               <Check size={16} />
               確定
             </button>
           )}
-          {(mode === 'room' || mode === 'scale' || mode === 'sleeve' || mode === 'count') && (
+          {(mode === 'room' ||
+            mode === 'wall' ||
+            mode === 'scale' ||
+            mode === 'sleeve' ||
+            mode === 'count') && (
             <button className="icon-button" aria-label="描画を中止" onClick={clearDrawing}>
               <X size={17} />
             </button>
@@ -990,13 +1043,15 @@ export function TakeoffEditor({
                     ? '選択した部屋に加える袖壁の始点・終点をクリックします。外周と分けて拾うため、線が交差しても面積は変わりません。'
                     : mode === 'scale'
                       ? '既知の寸法の始点と終点をクリック。軸の近くは水平・垂直補助、離すと斜めに指定できます。'
-                      : mode === 'room'
-                        ? rectangle
-                          ? '矩形の対角の2点をクリックしてください。'
-                          : '頂点をクリック → 始点クリック・「確定」で完了。軸の近くは水平・垂直補助、離すと自由描画。右ドラッグで移動。'
-                        : editor
-                          ? '右の属性を編集し、数量を確認して保存します。'
-                          : 'クリックで部屋・個数を選択・右ドラッグで移動・ホイールでカーソル中心に拡大縮小。'}
+                      : mode === 'wall'
+                        ? '壁の始点・角・終点をクリック → 「確定」またはEnter。1面は2点、2面は3点。右ドラッグで移動。'
+                        : mode === 'room'
+                          ? rectangle
+                            ? '矩形の対角の2点をクリックしてください。'
+                            : '頂点をクリック → 始点クリック・「確定」で完了。軸の近くは水平・垂直補助、離すと自由描画。右ドラッグで移動。'
+                          : editor
+                            ? '右の属性を編集し、数量を確認して保存します。'
+                            : 'クリックで部屋・個数を選択・右ドラッグで移動・ホイールでカーソル中心に拡大縮小。'}
           </div>
           <PdfPage
             pdf={pdf}
@@ -1007,7 +1062,11 @@ export function TakeoffEditor({
             overlay={overlay}
             pan={mode === 'pan'}
             crosshair={
-              mode === 'room' || mode === 'scale' || mode === 'sleeve' || mode === 'count'
+              mode === 'room' ||
+              mode === 'wall' ||
+              mode === 'scale' ||
+              mode === 'sleeve' ||
+              mode === 'count'
                 ? cursor
                 : null
             }
@@ -1087,6 +1146,7 @@ export function TakeoffEditor({
                 <RoomForm
                   key={editor.id}
                   room={editor.room}
+                  geometryType={editor.geometryType ?? editor.room?.geometryType}
                   groupSize={
                     editor.room
                       ? state.rooms.filter((r) => r.groupId === editor.room!.groupId).length
@@ -1098,7 +1158,7 @@ export function TakeoffEditor({
                   openMaterials={() => setMasterOpen(true)}
                   polygon={editor.polygon}
                   scale={state.scaleRatio}
-                  busy={busy || mode === 'room'}
+                  busy={busy || mode === 'room' || mode === 'wall'}
                   save={(input) => void requestPreview({ kind: 'room', id: editor.id, input })}
                   redraw={startRoom}
                   remove={() => void requestPreview({ kind: 'deleteRoom', id: editor.id })}
@@ -1133,6 +1193,9 @@ export function TakeoffEditor({
                       </>
                     )}
 
+                    {selected.geometryType === 'wall-line' && (
+                      <p>壁の線拾い · {selected.polygon.length - 1}面</p>
+                    )}
                     <p>壁高さ {quantityText(selected.heightMm)} mm</p>
                     <button
                       className="secondary wide"
@@ -1142,7 +1205,7 @@ export function TakeoffEditor({
                       }
                     >
                       <Pencil size={14} />
-                      部屋を編集
+                      {selected.geometryType === 'wall-line' ? '壁の線を編集' : '部屋を編集'}
                     </button>
                   </div>
                   <h4 className="panel-subheading">正味数量</h4>
@@ -1182,61 +1245,65 @@ export function TakeoffEditor({
                       </div>
                     )
                   })}
-                  <div className="opening-heading">
-                    <h4>袖壁</h4>
-                    <button
-                      className="text-button"
-                      disabled={busy || !canAddOpening}
-                      onClick={() => {
-                        setMode('sleeve')
-                        setPoints([])
-                        setCursor(null)
-                      }}
-                    >
-                      線で追加
-                    </button>
-                  </div>
-                  <p className="panel-description">
-                    外周に往復線を入れず、厚みのない袖壁を別の線で拾います。
-                  </p>
-                  {selected.sleeveWalls.map((wall) => (
-                    <div className="deduction-card" key={wall.id}>
-                      <button
-                        disabled={busy}
-                        onClick={() => {
-                          setError('')
-                          setSleeve({ roomId: selected.id, wall })
-                        }}
-                      >
-                        <strong>
-                          {wall.name}（{wall.faces}面）
-                        </strong>
-                        <small>
-                          {quantityText(distance(...wall.points) * state.scaleRatio!)} m ·{' '}
-                          {wall.heightMm === null
-                            ? '部屋と同じ高さ'
-                            : `${quantityText(wall.heightMm)} mm`}
-                        </small>
-                      </button>
-                      <button
-                        className="icon-button danger-text"
-                        aria-label={`${wall.name}の線を削除`}
-                        disabled={busy}
-                        onClick={() =>
-                          void requestPreview({
-                            kind: 'room',
-                            id: selected.id,
-                            input: {
-                              ...roomInputOf(selected),
-                              sleeveWalls: selected.sleeveWalls.filter((w) => w.id !== wall.id)
+                  {selected.geometryType !== 'wall-line' && (
+                    <>
+                      <div className="opening-heading">
+                        <h4>袖壁</h4>
+                        <button
+                          className="text-button"
+                          disabled={busy || !canAddOpening}
+                          onClick={() => {
+                            setMode('sleeve')
+                            setPoints([])
+                            setCursor(null)
+                          }}
+                        >
+                          線で追加
+                        </button>
+                      </div>
+                      <p className="panel-description">
+                        外周に往復線を入れず、厚みのない袖壁を別の線で拾います。
+                      </p>
+                      {selected.sleeveWalls.map((wall) => (
+                        <div className="deduction-card" key={wall.id}>
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              setError('')
+                              setSleeve({ roomId: selected.id, wall })
+                            }}
+                          >
+                            <strong>
+                              {wall.name}（{wall.faces}面）
+                            </strong>
+                            <small>
+                              {quantityText(distance(...wall.points) * state.scaleRatio!)} m ·{' '}
+                              {wall.heightMm === null
+                                ? '部屋と同じ高さ'
+                                : `${quantityText(wall.heightMm)} mm`}
+                            </small>
+                          </button>
+                          <button
+                            className="icon-button danger-text"
+                            aria-label={`${wall.name}の線を削除`}
+                            disabled={busy}
+                            onClick={() =>
+                              void requestPreview({
+                                kind: 'room',
+                                id: selected.id,
+                                input: {
+                                  ...roomInputOf(selected),
+                                  sleeveWalls: selected.sleeveWalls.filter((w) => w.id !== wall.id)
+                                }
+                              })
                             }
-                          })
-                        }
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
                   <div className="opening-heading">
                     <h4>開口控除</h4>
                     <button

@@ -36,6 +36,7 @@ export function LayoutPage({
     setZoom(1)
     void unwrap(window.sekisan.readTakeoff({ drawingId: drawing.id, pageNumber }))
       .then((result) => {
+        result = { ...result, rooms: result.rooms.filter((r) => r.geometryType !== 'wall-line') }
         if (active) {
           setState(result)
           setSelectedId(

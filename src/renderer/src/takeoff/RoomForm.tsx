@@ -17,6 +17,7 @@ import { materialSpecification, type Material } from '../../../shared/materials'
 import { quantityText } from './Dialogs'
 export function RoomForm({
   room,
+  geometryType = room?.geometryType,
   materials,
   groupSize,
   roomNames,
@@ -31,6 +32,7 @@ export function RoomForm({
   cancel
 }: {
   room: Room | null
+  geometryType?: RoomInput['geometryType']
   materials: Material[]
   groupSize: number
   roomNames: string[]
@@ -44,9 +46,15 @@ export function RoomForm({
   remove: () => void
   cancel: () => void
 }): React.JSX.Element {
+  const isWall = geometryType === 'wall-line'
+  const availableCategories = isWall
+    ? categories.filter((c) => c === 'wall' || c === 'baseboard')
+    : [...categories]
   const [error, setError] = useState('')
   const [name, setName] = useState(room?.name ?? '')
-  const [enabled, setEnabled] = useState(room?.enabledCategories ?? [...categories])
+  const [enabled, setEnabled] = useState(
+    room?.enabledCategories ?? (isWall ? ['wall'] : [...categories])
+  )
   const [finishes, setFinishes] = useState(room?.finishes ?? emptyFinishes())
   const [height, setHeight] = useState(String(room?.heightMm ?? heightHistory[0] ?? 2400))
   let quantities: Record<string, number> | null = null
@@ -56,7 +64,8 @@ export function RoomForm({
       scale,
       Number(height),
       room?.sleeveWalls,
-      takeoffUnit('wall', finishes)
+      takeoffUnit('wall', finishes),
+      geometryType
     )
   } catch {
     /* Validation appears on submit. */
@@ -74,6 +83,7 @@ export function RoomForm({
             color: form.get('color'),
             heightMm: Number(height),
             polygon,
+            geometryType,
             finishes,
             sleeveWalls: room?.sleeveWalls ?? [],
             enabledCategories: enabled
@@ -83,7 +93,8 @@ export function RoomForm({
             scale,
             input.heightMm,
             input.sleeveWalls,
-            takeoffUnit('wall', input.finishes)
+            takeoffUnit('wall', input.finishes),
+            geometryType
           )
           save(input)
         } catch (e) {
@@ -92,8 +103,14 @@ export function RoomForm({
       }}
     >
       <fieldset disabled={busy}>
-        <h3>{room ? '部屋を編集' : '部屋を登録'}</h3>
-        <p className="panel-description">拾う部位を選び、平面の面積と外周から計算します。</p>
+        <h3>
+          {isWall ? (room ? '壁の線を編集' : '壁の線を登録') : room ? '部屋を編集' : '部屋を登録'}
+        </h3>
+        <p className="panel-description">
+          {isWall
+            ? '指定した線の長さで拾います。㎡は長さ×高さ、mは長さです。一般壁の数量からは自動控除しません。'
+            : '拾う部位を選び、平面の面積と外周から計算します。'}
+        </p>
         <label>
           部屋名
           <input
@@ -155,7 +172,7 @@ export function RoomForm({
               aria-label="部屋の色"
               type="color"
               name="color"
-              defaultValue={room?.color ?? '#327e6d'}
+              defaultValue={room?.color ?? (isWall ? '#a65a36' : '#327e6d')}
             />
           </label>
         </div>
@@ -189,15 +206,19 @@ export function RoomForm({
           </button>
         </div>
         <div className="category-actions">
-          <button type="button" className="text-button" onClick={() => setEnabled([...categories])}>
-            4部位すべて
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => setEnabled(availableCategories)}
+          >
+            {isWall ? '壁・巾木の両方' : '4部位すべて'}
           </button>
           <button type="button" className="text-button" onClick={() => setEnabled([])}>
             選択を解除
           </button>
         </div>
         <div className="category-selection">
-          {categories.map((c) => (
+          {availableCategories.map((c) => (
             <label key={c} className="category-toggle">
               <input
                 type="checkbox"
@@ -214,7 +235,7 @@ export function RoomForm({
         <button type="button" className="secondary wide" onClick={openMaterials}>
           仕上げ材マスタを開く
         </button>
-        {categories
+        {availableCategories
           .filter((c) => enabled.includes(c))
           .map((c) => (
             <div className="finish-input" key={c}>
@@ -240,13 +261,19 @@ export function RoomForm({
                             }))
                           }
                         >
-                          <option value="㎡">面積（㎡）：周長×高さ</option>
-                          <option value="m">延長（m）：周長</option>
+                          <option value="㎡">
+                            {isWall ? '面積（㎡）：線の長さ×高さ' : '面積（㎡）：周長×高さ'}
+                          </option>
+                          <option value="m">
+                            {isWall ? '延長（m）：線の長さ' : '延長（m）：周長'}
+                          </option>
                         </select>
                       </label>
                       {takeoffUnit(c, finishes) === 'm' && (
                         <p className="panel-description">
-                          部屋を一周する長さです。高さは掛けません。袖壁は面数分を加え、貼らない開口の幅は保存後に控除できます。
+                          {isWall
+                            ? '指定した線の長さです。高さは掛けません。貼らない開口の幅は保存後に控除できます。'
+                            : '部屋を一周する長さです。高さは掛けません。袖壁は面数分を加え、貼らない開口の幅は保存後に控除できます。'}
                         </p>
                       )}
                     </>

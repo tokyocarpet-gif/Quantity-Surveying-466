@@ -42,6 +42,11 @@ export const ROLL_SHIPPING_SQL = `PRAGMA user_version = 13;`
 
 export const WALL_LENGTH_SQL = `PRAGMA user_version = 14;`
 
+export const WALL_LINE_SQL = `
+ALTER TABLE rooms ADD COLUMN geometryType TEXT NOT NULL DEFAULT 'area' CHECK(geometryType IN ('area','wall-line'));
+PRAGMA user_version = 15;
+`
+
 export function initializeSchema(db: Database.Database, version: number): void {
   db.transaction(() => {
     if (version === 0) db.exec(BASE_SQL)
@@ -58,5 +63,6 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 12) db.exec(ROLL_CUT_ORDER_SQL)
     if (version < 13) db.exec(ROLL_SHIPPING_SQL)
     if (version < 14) db.exec(WALL_LENGTH_SQL)
+    if (version < 15) db.exec(WALL_LINE_SQL)
   })()
 }

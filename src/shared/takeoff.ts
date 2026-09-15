@@ -111,7 +111,8 @@ export const roomInputSchema = z
     name: nameSchema,
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     heightMm: positive,
-    polygon: polygonSchema,
+    geometryType: z.enum(['area', 'wall-line']).optional(),
+    polygon: z.array(pointSchema).min(2, '始点と終点を指定してください。').max(500),
     finishes: finishesSchema,
     sleeveWalls: z
       .array(sleeveWallSchema)
@@ -126,6 +127,20 @@ export const roomInputSchema = z
       .default([...categories])
   })
   .strict()
+  .superRefine((room, ctx) => {
+    if (room.geometryType === 'wall-line') {
+      if (
+        room.enabledCategories.some((c) => c !== 'wall' && c !== 'baseboard') ||
+        room.sleeveWalls.length
+      )
+        ctx.addIssue({
+          code: 'custom',
+          message: '壁の線拾いでは壁・巾木のみ指定できます。袖壁は別の線で拾ってください。'
+        })
+    } else if (room.polygon.length < 3) {
+      ctx.addIssue({ code: 'custom', message: '部屋は3点以上で囲んでください。' })
+    }
+  })
 export type RoomInput = z.infer<typeof roomInputSchema>
 export interface Room extends RoomInput {
   groupId: string
@@ -300,17 +315,38 @@ export function scaleFromCalibration(points: [Point, Point], lengthMm: number): 
     throw new Error('縮尺の実寸を確認してください。')
   return scale
 }
+/** An open chain measures only explicitly drawn segments, never the last-to-first edge. */
+export function wallLineLength(points: Point[]): number {
+  z.array(pointSchema).min(2, '壁の始点・終点を指定してください。').max(500).parse(points)
+  if (distance(points[0], points.at(-1)!) < 0.01)
+    throw new Error('壁の線は閉じず、最後の壁の端で確定してください。')
+  let length = 0
+  const segments = new Set<string>()
+  for (let i = 1; i < points.length; i++) {
+    const part = distance(points[i - 1], points[i])
+    if (part < 0.01) throw new Error('壁の線の頂点は離して指定してください。')
+    const key = [JSON.stringify(points[i - 1]), JSON.stringify(points[i])].sort().join(':')
+    if (segments.has(key)) throw new Error('同じ壁の線を重ねて指定しないでください。')
+    segments.add(key)
+    length += part
+  }
+  return length
+}
 export function roomQuantities(
   polygon: Point[],
   scale: number | null,
   heightMm: number,
   sleeveWalls: SleeveWall[] = [],
-  wallUnit: '㎡' | 'm' = '㎡'
+  wallUnit: '㎡' | 'm' = '㎡',
+  geometryType: RoomInput['geometryType'] = 'area'
 ): Record<Category, number> {
   if (scale === null || !Number.isFinite(scale) || scale <= 0)
     throw new Error('このページの縮尺を設定してください。')
   positive.parse(heightMm)
-  const { area, perimeter } = geometry(polygon)
+  const { area, perimeter } =
+    geometryType === 'wall-line'
+      ? { area: 0, perimeter: wallLineLength(polygon) }
+      : geometry(polygon)
   const result = {
     ceiling: area * scale * scale,
     wall: perimeter * scale * (wallUnit === 'm' ? 1 : heightMm / 1000),
@@ -376,6 +412,7 @@ export function roomInputOf(room: Room): RoomInput {
     color: room.color,
     heightMm: room.heightMm,
     polygon: room.polygon,
+    ...(room.geometryType === 'wall-line' ? { geometryType: room.geometryType } : {}),
     finishes: room.finishes,
     enabledCategories: room.enabledCategories,
     sleeveWalls: room.sleeveWalls
