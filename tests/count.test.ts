@@ -235,7 +235,7 @@ test('個数と図面位置をバックアップ・復元・再起動で保持�
     assert.equal(migrated.readTakeoff(f.address).counts?.length, 0)
     migrated.close()
     const snapshots = readdirSync(join(f.root, 'app/recovery')).filter((n) =>
-      n.startsWith('before-schema-v15-')
+      n.startsWith('before-schema-v16-')
     )
     assert.equal(snapshots.length, 1)
     const old = new Database(join(f.root, 'app/recovery', snapshots[0]), { readonly: true })

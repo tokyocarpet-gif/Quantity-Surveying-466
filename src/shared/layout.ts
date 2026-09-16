@@ -1,7 +1,7 @@
 import { planRollCuts } from './roll-cut-order'
 import { z } from 'zod'
 import { idSchema } from './validation'
-import { geometry, type Point } from './takeoff'
+import { geometry, polygonSchema, type Point } from './takeoff'
 
 export const layoutTypeSchema = z.enum(['tile', 'sheet', 'carpet'])
 export const layoutTypeLabels = {
@@ -19,6 +19,17 @@ export const tileDimensions = {
 }
 export const layoutBodySchema = z
   .object({
+    customPolygon: polygonSchema
+      .refine((points) => {
+        try {
+          geometry(points)
+          return true
+        } catch {
+          return false
+        }
+      }, '割り付け範囲の交差・重複・面積を確認してください。')
+      .nullable()
+      .default(null),
     rollCutMode: z.enum(['width', 'free']).default('width'),
     maxWidthMm: z.number().finite().min(10).max(10000).nullable().default(null),
     layoutType: layoutTypeSchema.default('tile'),
@@ -68,6 +79,7 @@ export const layoutSaveSchema = z
   .strict()
 export type LayoutSave = z.infer<typeof layoutSaveSchema>
 export const defaultLayout = (): LayoutBody => ({
+  customPolygon: null,
   rollCutMode: 'width',
   maxWidthMm: null,
   reorderCuts: false,
@@ -149,6 +161,7 @@ function clipRect(polygon: Point[], x: number, y: number, w: number, h: number):
 }
 export function computeLayout(polygon: Point[], scale: number, raw: LayoutBody) {
   const b = layoutBodySchema.parse(raw)
+  polygon = b.customPolygon ?? polygon
   geometry(polygon)
   if (!Number.isFinite(scale) || scale <= 0) throw new Error('縮尺を設定してください。')
   if (b.mode === 'wall' && b.wallIndex >= polygon.length)

@@ -149,7 +149,7 @@ test('v5の材料を退避して移行し、共通と物件の関連・単価を
     assert.equal(m.unitPrice, 250)
     s.changeMaterials({ kind: 'import', projectId: project, ids: [source] })
     assert.equal(s.readMaterials(project).project.length, 1)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v15-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
     s.changeMaterials({ kind: 'delete', id: source })
     assert.equal(s.readMaterials(project).project[0].sourceId, null)
   } finally {
@@ -210,7 +210,7 @@ test('v7の案件・自社情報は空の追加項目で移行し、旧バック
     assert.deepEqual(s.workspace().projects[0], project)
     assert.deepEqual(s.readCompany(), { ...emptyCompany(), name: '既存会社' })
     const snapshots = readdirSync(join(root, 'recovery')).filter((n) =>
-      n.startsWith('before-schema-v15-')
+      n.startsWith('before-schema-v16-')
     )
     assert.equal(snapshots.length, 1)
     const snapshot = new Database(join(root, 'recovery', snapshots[0]), { readonly: true })

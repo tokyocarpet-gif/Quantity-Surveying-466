@@ -179,9 +179,29 @@ test('材料寸法と部屋の配置を保存・復元し、競合と形状変�
       roomId,
       expectedRevision: 0,
       sourceKey: layoutSourceKey(polygon, 0.01),
-      body: { ...base(), materialId: material.id, offsetX: 10 }
+      body: { ...base(), materialId: material.id, offsetX: 10, customPolygon: rect(600, 300) }
     }
+    const takeoffBefore = s.readTakeoff(address)
     const saved = s.saveLayout(request)
+    assert.deepEqual(s.readTakeoff(address), takeoffBefore, '専用範囲の保存は拾い出しを変えない')
+    assert.deepEqual(saved.body.customPolygon, rect(600, 300))
+    const report = s.layoutReport({
+      ...request,
+      expectedRevision: saved.revision,
+      diagram: 'data:image/png;base64,AAAA'
+    })
+    close(report.result.roomArea, 18)
+    assert.equal(report.draft, false)
+    assert.throws(
+      () =>
+        s.saveLayout({
+          ...request,
+          expectedRevision: saved.revision,
+          sourceKey: layoutSourceKey(request.body.customPolygon, 0.01)
+        }),
+      /縮尺/
+    )
+
     assert.deepEqual(s.readLayout(roomId), saved)
     assert.throws(() => s.saveLayout(request), /更新/)
     assert.throws(() => s.saveLayout({ ...request, expectedRevision: 1, sourceKey: 'old' }), /縮尺/)
@@ -221,7 +241,7 @@ test('v8からv9への移行は材料を保持して事前退避する', () => {
   try {
     assert.equal(s.readMaterials(null).global.length, 9)
     assert.equal(s.readMaterials(null).global[0].tileWidthMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v15-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
   } finally {
     s.close()
     rmSync(root, { recursive: true, force: true })
@@ -259,7 +279,7 @@ test('v9の仕様文・寸法・保存済み目地を残して厚み未設定で
     assert.equal(material.tileHeightMm, 900)
     assert.equal(material.tileGapMm, 2)
     assert.equal(material.tileThicknessMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v15-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
   } finally {
     storage.close()
     rmSync(root, { recursive: true, force: true })
@@ -278,5 +298,59 @@ test('仕様と規格を一欄にまとめ、空欄と部分寸法を区別す�
   assert.equal(
     materialSpecification({ ...m, tileWidthMm: null, tileHeightMm: null, tileThicknessMm: null }),
     '品番ABC'
+  )
+})
+
+test('専用範囲でタイル・ロールを計算し、解除すると元の範囲へ戻る', () => {
+  const original = rect(4000, 3000),
+    custom = rect(6000, 3000)
+  const old = structuredClone(original)
+  const tile = computeLayout(original, 0.001, { ...base(), customPolygon: custom })
+  close(tile.roomArea, 18)
+  assert.equal(tile.full + tile.cut, 72)
+  const roll = computeLayout(original, 0.001, {
+    ...base(),
+    layoutType: 'sheet',
+    widthMm: 2000,
+    heightMm: 20000,
+    customPolygon: custom,
+    mode: 'wall'
+  })
+  close(roll.roomArea, 18)
+  close(roll.roll!.requiredArea, 18)
+  assert.equal(roll.roll!.strips.length, 3)
+  close(computeLayout(original, 0.001, { ...base(), customPolygon: null }).roomArea, 12)
+  assert.deepEqual(original, old)
+})
+test('専用範囲の交差・ゼロ面積・範囲外の壁番号を拒否する', () => {
+  for (const points of [
+    [
+      { x: 0, y: 0 },
+      { x: 4, y: 4 },
+      { x: 0, y: 4 },
+      { x: 4, y: 0 }
+    ],
+    [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 2, y: 0 }
+    ]
+  ])
+    assert.throws(() =>
+      computeLayout(rect(4000, 3000), 0.001, { ...base(), customPolygon: points })
+    )
+  assert.throws(
+    () =>
+      computeLayout(rect(4000, 3000), 0.001, {
+        ...base(),
+        customPolygon: [
+          { x: 0, y: 0 },
+          { x: 3000, y: 0 },
+          { x: 0, y: 3000 }
+        ],
+        mode: 'wall',
+        wallIndex: 3
+      }),
+    /基準の壁/
   )
 })

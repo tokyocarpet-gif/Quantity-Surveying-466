@@ -47,6 +47,8 @@ ALTER TABLE rooms ADD COLUMN geometryType TEXT NOT NULL DEFAULT 'area' CHECK(geo
 PRAGMA user_version = 15;
 `
 
+export const LAYOUT_BOUNDARY_SQL = `PRAGMA user_version = 16;`
+
 export function initializeSchema(db: Database.Database, version: number): void {
   db.transaction(() => {
     if (version === 0) db.exec(BASE_SQL)
@@ -64,5 +66,6 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 13) db.exec(ROLL_SHIPPING_SQL)
     if (version < 14) db.exec(WALL_LENGTH_SQL)
     if (version < 15) db.exec(WALL_LINE_SQL)
+    if (version < 16) db.exec(LAYOUT_BOUNDARY_SQL)
   })()
 }

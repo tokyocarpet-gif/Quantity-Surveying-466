@@ -31,7 +31,7 @@ export function layoutPrintHtml(report: Report): string {
     text(dimensionLabel(n, body.layoutType, axis))
   const area = (n: number) =>
     n.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-  const metadata = `${text(report.projectName)} ／ ${text(report.roomName)}`
+  const metadata = `${text(report.projectName)} ／ ${text(report.roomName)}${body.customPolygon ? ' ／ 割り付け専用範囲' : ''}`
   const source = `${text(report.drawingName)} · ${report.pageNumber}ページ`
   const status = report.draft ? '画面の配置（未保存）' : `保存済み 第${input.expectedRevision}版`
   const metrics = roll
@@ -56,7 +56,7 @@ export function layoutPrintHtml(report: Report): string {
     table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt;} thead{display:table-header-group;} th,td{border:.2mm solid #b6c9bd;padding:2mm;text-align:right;overflow-wrap:anywhere;} th{background:#edf4f0;font-weight:500;} .scope{text-align:left;font-size:8pt;} tr{break-inside:avoid;}
     </style></head><body><h1>割り付け図</h1><div class="metadata">${metadata}</div><p class="source">${source} ／ ${status}</p>
     <img class="figure" src="${input.diagram}" alt="保存対象の部屋の割り付け図">
-    <p class="metrics">部屋面積 ${area(result.roomArea)} ㎡ ／ ${metrics}</p>
+    <p class="metrics">${body.customPolygon ? '割り付け面積' : '部屋面積'} ${area(result.roomArea)} ㎡ ／ ${metrics}</p>
     <p class="note">図面は実測W・Lを表示。用紙に合わせて拡大・縮小しているため、記載寸法を参照してください。</p>
     ${roll?.overLength ? '<p class="warning">最大出荷Lを超えるシートがあります。使用寸法を確認してください。</p>' : ''}
     <section class="details"><h1>割り付け・使用材料内訳</h1><div class="metadata">${metadata}</div><p class="source">${source} ／ ${status}</p>

@@ -11,12 +11,13 @@ import {
   type LayoutBody,
   type LayoutDoc
 } from '../../../shared/layout'
-import { distance, type Room, type Point } from '../../../shared/takeoff'
+import { geometry, distance, type Room, type Point } from '../../../shared/takeoff'
 import { materialSpecification, type MaterialContext } from '../../../shared/materials'
 import { MaterialInput } from '../MaterialInput'
 import { MaterialManager } from '../MaterialManager'
 import { unwrap } from '../store'
 import { PdfPage } from './PdfPage'
+import { LayoutBoundaryDrawing } from './LayoutBoundaryDrawing'
 import { TakeoffDialog } from './Dialogs'
 import { layoutWallDimensions } from '../../../shared/layout-dimensions'
 import { LayoutDimensionsOverlay, dimensionText } from './LayoutDimensionsOverlay'
@@ -65,6 +66,15 @@ export function LayoutEditor({
   roomSelection: (leave: (action: () => void) => void, busy: boolean) => ReactNode
 }): React.JSX.Element {
   const [body, setBody] = useState<LayoutDraft>(() => emptyDraft(room))
+  const [boundaryPoints, setBoundaryPoints] = useState<Point[] | null>(null)
+  const [boundaryCursor, setBoundaryCursor] = useState<Point | null>(null)
+  const drawingBoundary = boundaryPoints !== null
+  const polygon = body.customPolygon ?? room.polygon
+  const cancelBoundary = (): void => {
+    setBoundaryPoints(null)
+    setBoundaryCursor(null)
+    setError('')
+  }
   const initialBody = useRef<LayoutDraft | null>(null)
   const [saved, setSaved] = useState<LayoutDoc | null>(null),
     [loaded, setLoaded] = useState(false)
@@ -158,7 +168,7 @@ export function LayoutEditor({
       }
     try {
       return {
-        result: computeLayout(room.polygon, scale, parsed.data),
+        result: computeLayout(polygon, scale, parsed.data),
         body: parsed.data,
         error: ''
       }
@@ -169,24 +179,37 @@ export function LayoutEditor({
         error: e instanceof Error ? e.message : '寸法を確認してください。'
       }
     }
-  }, [room.polygon, scale, body])
+  }, [polygon, scale, body])
   const wallDimensions = useMemo(
     () =>
       computed.result
-        ? layoutWallDimensions(room.polygon, computed.result.anchor, computed.result.angle, scale)
+        ? layoutWallDimensions(polygon, computed.result.anchor, computed.result.angle, scale)
         : null,
-    [room.polygon, scale, computed.result]
+    [polygon, scale, computed.result]
   )
-  const dirty =
+  const configurationDirty =
     loaded &&
     (saved
       ? JSON.stringify(body) !== JSON.stringify(toDraft(saved.body)) ||
         saved.sourceKey !== sourceKey
       : JSON.stringify(body) !== JSON.stringify(initialBody.current) || !!computed.result)
+  const dirty = configurationDirty || drawingBoundary
   const change = (update: Partial<LayoutDraft>): void => {
     setHistory((h) => [...h.slice(-49), body])
     setBody({ ...body, ...update })
     setNotice('')
+  }
+  function finishBoundary(points: Point[]): void {
+    try {
+      geometry(points)
+      change({ customPolygon: points, wallIndex: 0, offsetX: 0, offsetY: 0 })
+      cancelBoundary()
+      setNotice(
+        '割り付け範囲を変更しました。基準壁・移動量をリセットしました。「割り付けを保存」で確定します。'
+      )
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '範囲を確認してください。')
+    }
   }
   const nudge = (x: number, y: number): void =>
     change({
@@ -199,11 +222,11 @@ export function LayoutEditor({
     else action()
   }
   async function previewPdf(): Promise<void> {
-    if (!computed.body || !computed.result || busy) return
+    if (!computed.body || !computed.result || busy || drawingBoundary) return
     setBusy(true)
     setError('')
     try {
-      const diagram = await layoutImage(pdf, pageNumber, room.polygon, scale, computed.body)
+      const diagram = await layoutImage(pdf, pageNumber, polygon, scale, computed.body)
       setPdfRequest({
         roomId: room.id,
         expectedRevision: saved?.revision ?? 0,
@@ -219,7 +242,7 @@ export function LayoutEditor({
   }
   const requestClose = (): void => leave(close)
   async function save(): Promise<void> {
-    if (!computed.result || !computed.body || !loaded || busy) return
+    if (!computed.result || !computed.body || !loaded || busy || drawingBoundary) return
     setBusy(true)
     setError('')
     try {
@@ -289,6 +312,66 @@ export function LayoutEditor({
           {roomSelection(leave, busy)}
           {!loaded && <p>{error || '割り付けを読み込んでいます…'}</p>}
           <fieldset disabled={busy || !loaded}>
+            <h3>割り付け範囲</h3>
+            <p>
+              {body.customPolygon ? '割り付け専用の範囲' : '拾い出しの範囲を使用'} ·{' '}
+              {(geometry(polygon).area * scale * scale).toFixed(1)} ㎡
+            </p>
+            <p>
+              この部屋に割り付け専用の範囲を保存します。拾い出し・集計・見積の数量は変えません。
+            </p>
+            {drawingBoundary ? (
+              <>
+                <p>外周の頂点をクリックし、始点クリック・「範囲を確定」・Enterで確定します。</p>
+                <div className="layout-grid">
+                  <button
+                    className="secondary"
+                    disabled={!boundaryPoints.length}
+                    onClick={() => setBoundaryPoints(boundaryPoints.slice(0, -1))}
+                  >
+                    1点戻す
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={boundaryPoints.length < 3}
+                    onClick={() => finishBoundary(boundaryPoints)}
+                  >
+                    範囲を確定
+                  </button>
+                </div>
+                <button className="secondary" onClick={cancelBoundary}>
+                  囲い直しをやめる
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setBoundaryPoints([])
+                    setBoundaryCursor(null)
+                    setError('')
+                    setNotice('')
+                  }}
+                >
+                  割り付け範囲を囲い直す
+                </button>
+                <button
+                  className="secondary"
+                  disabled={!body.customPolygon}
+                  onClick={() => {
+                    change({ customPolygon: null, wallIndex: 0, offsetX: 0, offsetY: 0 })
+                    setNotice(
+                      '拾い出しの範囲に戻しました。保存前なら「ひとつ戻す」で取り消せます。'
+                    )
+                  }}
+                >
+                  拾い出しの範囲に戻す
+                </button>
+              </>
+            )}
+          </fieldset>
+          <fieldset disabled={busy || !loaded || drawingBoundary}>
             <h3>材料・規格</h3>
             <MaterialInput
               label="割付の材料"
@@ -520,15 +603,15 @@ export function LayoutEditor({
                     change({ wallIndex: Number(e.target.value), offsetX: 0, offsetY: 0 })
                   }
                 >
-                  {room.polygon.map((p, i) => (
+                  {polygon.map((p, i) => (
                     <option key={i} value={i}>
                       壁{i + 1} ·{' '}
                       {isRoll
                         ? dimensionLabel(
-                            distance(p, room.polygon[(i + 1) % room.polygon.length]) * scale * 1000,
+                            distance(p, polygon[(i + 1) % polygon.length]) * scale * 1000,
                             body.layoutType
                           )
-                        : `${Math.round(distance(p, room.polygon[(i + 1) % room.polygon.length]) * scale * 1000)} mm`}
+                        : `${Math.round(distance(p, polygon[(i + 1) % polygon.length]) * scale * 1000)} mm`}
                     </option>
                   ))}
                 </select>
@@ -627,7 +710,9 @@ export function LayoutEditor({
                 {isRoll ? '番号：シート／W：実測幅／L：実測長さ' : '緑：真物／橙：切り物'}
               </span>
               <p className="layout-navigation-hint">
-                右ドラッグで図面を移動 · ホイールで拡大・縮小
+                {drawingBoundary
+                  ? '頂点をクリックして囲む · 水平垂直補助 · 右ドラッグで移動 · Escで中止'
+                  : '右ドラッグで図面を移動 · ホイールで拡大・縮小'}
               </p>
             </div>
             {isRoll && (
@@ -656,164 +741,188 @@ export function LayoutEditor({
             zoom={zoom}
             onZoom={setZoom}
             resetView={reset}
-            crosshair={null}
+            crosshair={drawingBoundary ? boundaryCursor : null}
             pan={false}
             fitHeight={isRoll}
-            overlay={(view) => (
-              <svg
-                className="takeoff-overlay layout-overlay"
-                data-testid="layout-overlay"
-                viewBox={`0 0 ${view.width} ${view.height}`}
-                tabIndex={0}
-                aria-label="割り付けの調整領域"
-                onPointerDown={(e) => {
-                  if (e.button !== 0 || busy || !loaded || !computed.result) return
-                  e.preventDefault()
-                  e.currentTarget.focus()
-                  e.currentTarget.setPointerCapture(e.pointerId)
-                  drag.current = {
-                    x: e.clientX,
-                    y: e.clientY,
-                    body,
-                    scale: view.scale,
-                    angle: computed.result.angle,
-                    id: e.pointerId
-                  }
-                }}
-                onPointerMove={(e) => {
-                  const d = drag.current
-                  if (!d || e.pointerId !== d.id || !(e.buttons & 1)) return
-                  const delta = rotate(
-                    {
-                      x: ((e.clientX - d.x) / d.scale) * scale * 1000,
-                      y: ((e.clientY - d.y) / d.scale) * scale * 1000
-                    },
-                    -d.angle
-                  )
-                  setBody({
-                    ...d.body,
-                    offsetX: Math.round(d.body.offsetX + delta.x),
-                    offsetY: Math.round(d.body.offsetY + delta.y)
-                  })
-                  setNotice('')
-                }}
-                onLostPointerCapture={() => {
-                  if (drag.current) {
-                    const before = drag.current.body
-                    setHistory((h) => [...h.slice(-49), before])
-                    drag.current = null
-                  }
-                }}
-                onPointerCancel={() => {
-                  if (drag.current) setBody(drag.current.body)
-                  drag.current = null
-                }}
-                onKeyDown={(e) => {
-                  if (busy || !loaded || e.nativeEvent.isComposing) return
-                  const dirs: Record<string, [number, number]> = {
-                    ArrowLeft: [-1, 0],
-                    ArrowRight: [1, 0],
-                    ArrowUp: [0, -1],
-                    ArrowDown: [0, 1]
-                  }
-                  if (dirs[e.key]) {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    nudge(...dirs[e.key])
-                  }
-                }}
-              >
-                <defs>
-                  <clipPath id={clipId}>
-                    <polygon points={shape(room.polygon)} />
-                  </clipPath>
-                </defs>
-                <g clipPath={`url(#${clipId})`} pointerEvents="none">
-                  {computed.result?.tiles.map((t, i) => (
-                    <polygon
-                      key={i}
-                      points={shape(t.polygon)}
-                      fill={
-                        isRoll ? (i % 2 ? '#479bbb' : '#50a37c') : t.full ? '#2b9671' : '#ed9f35'
-                      }
-                      fillOpacity="0.2"
-                      stroke={t.full ? '#217458' : '#b46916'}
-                      strokeWidth={0.8 / view.scale}
-                    />
-                  ))}
-                </g>
-                <polygon
-                  points={shape(room.polygon)}
-                  fill="transparent"
-                  stroke="#184f96"
-                  strokeWidth={2 / view.scale}
+            overlay={(view) =>
+              drawingBoundary ? (
+                <LayoutBoundaryDrawing
+                  view={view}
+                  source={room.polygon}
+                  current={polygon}
+                  points={boundaryPoints}
+                  cursor={boundaryCursor}
+                  update={setBoundaryPoints}
+                  move={setBoundaryCursor}
+                  finish={finishBoundary}
+                  cancel={cancelBoundary}
                 />
-                {body.mode === 'wall' && room.polygon[body.wallIndex] && (
-                  <line
-                    x1={room.polygon[body.wallIndex].x}
-                    y1={room.polygon[body.wallIndex].y}
-                    x2={room.polygon[(body.wallIndex + 1) % room.polygon.length].x}
-                    y2={room.polygon[(body.wallIndex + 1) % room.polygon.length].y}
-                    stroke="#d7336a"
-                    strokeWidth={4 / view.scale}
-                  />
-                )}
-                {room.polygon.map((p, i) => {
-                  const q = room.polygon[(i + 1) % room.polygon.length]
-                  return (
-                    <text
-                      key={i}
-                      x={(p.x + q.x) / 2}
-                      y={(p.y + q.y) / 2}
-                      fontSize={12 / view.scale}
-                      fill="#184f96"
-                      stroke="white"
-                      strokeWidth={3 / view.scale}
-                      paintOrder="stroke"
-                      textAnchor="middle"
-                      pointerEvents="none"
-                    >
-                      壁{i + 1}
-                    </text>
-                  )
-                })}
-                {computed.result?.roll && (
-                  <RollOverlay
-                    strips={computed.result.roll.strips}
-                    scale={view.scale}
-                    layoutType={body.layoutType}
-                    showDimensions={showSheetDimensions}
-                  />
-                )}
-                {computed.result && showDimensions && wallDimensions?.inside && (
-                  <LayoutDimensionsOverlay
-                    anchor={computed.result.anchor}
-                    dimensions={wallDimensions.dimensions}
-                    layoutType={body.layoutType}
-                    scale={view.scale}
-                    avoidPoint={
-                      isRoll && showSheetDimensions && body.mode === 'wall'
-                        ? {
-                            x: room.polygon.reduce((sum, p) => sum + p.x, 0) / room.polygon.length,
-                            y: room.polygon.reduce((sum, p) => sum + p.y, 0) / room.polygon.length
-                          }
-                        : undefined
+              ) : (
+                <svg
+                  className="takeoff-overlay layout-overlay"
+                  data-testid="layout-overlay"
+                  viewBox={`0 0 ${view.width} ${view.height}`}
+                  tabIndex={0}
+                  aria-label="割り付けの調整領域"
+                  onPointerDown={(e) => {
+                    if (e.button !== 0 || busy || !loaded || !computed.result) return
+                    e.preventDefault()
+                    e.currentTarget.focus()
+                    e.currentTarget.setPointerCapture(e.pointerId)
+                    drag.current = {
+                      x: e.clientX,
+                      y: e.clientY,
+                      body,
+                      scale: view.scale,
+                      angle: computed.result.angle,
+                      id: e.pointerId
                     }
-                  />
-                )}
-                {computed.result && (
-                  <g
-                    transform={`translate(${computed.result.anchor.x},${computed.result.anchor.y})`}
-                    pointerEvents="none"
-                    stroke="#d7336a"
-                    strokeWidth={2 / view.scale}
-                  >
-                    <line x1={-12 / view.scale} x2={12 / view.scale} />
-                    <line y1={-12 / view.scale} y2={12 / view.scale} />
+                  }}
+                  onPointerMove={(e) => {
+                    const d = drag.current
+                    if (!d || e.pointerId !== d.id || !(e.buttons & 1)) return
+                    const delta = rotate(
+                      {
+                        x: ((e.clientX - d.x) / d.scale) * scale * 1000,
+                        y: ((e.clientY - d.y) / d.scale) * scale * 1000
+                      },
+                      -d.angle
+                    )
+                    setBody({
+                      ...d.body,
+                      offsetX: Math.round(d.body.offsetX + delta.x),
+                      offsetY: Math.round(d.body.offsetY + delta.y)
+                    })
+                    setNotice('')
+                  }}
+                  onLostPointerCapture={() => {
+                    if (drag.current) {
+                      const before = drag.current.body
+                      setHistory((h) => [...h.slice(-49), before])
+                      drag.current = null
+                    }
+                  }}
+                  onPointerCancel={() => {
+                    if (drag.current) setBody(drag.current.body)
+                    drag.current = null
+                  }}
+                  onKeyDown={(e) => {
+                    if (busy || !loaded || e.nativeEvent.isComposing) return
+                    const dirs: Record<string, [number, number]> = {
+                      ArrowLeft: [-1, 0],
+                      ArrowRight: [1, 0],
+                      ArrowUp: [0, -1],
+                      ArrowDown: [0, 1]
+                    }
+                    if (dirs[e.key]) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      nudge(...dirs[e.key])
+                    }
+                  }}
+                >
+                  <defs>
+                    <clipPath id={clipId}>
+                      <polygon points={shape(polygon)} />
+                    </clipPath>
+                  </defs>
+                  <g clipPath={`url(#${clipId})`} pointerEvents="none">
+                    {computed.result?.tiles.map((t, i) => (
+                      <polygon
+                        key={i}
+                        points={shape(t.polygon)}
+                        fill={
+                          isRoll ? (i % 2 ? '#479bbb' : '#50a37c') : t.full ? '#2b9671' : '#ed9f35'
+                        }
+                        fillOpacity="0.2"
+                        stroke={t.full ? '#217458' : '#b46916'}
+                        strokeWidth={0.8 / view.scale}
+                      />
+                    ))}
                   </g>
-                )}
-              </svg>
-            )}
+                  {body.customPolygon && (
+                    <polygon
+                      points={shape(room.polygon)}
+                      fill="none"
+                      stroke="#85968f"
+                      strokeDasharray="6 4"
+                      strokeWidth={1 / view.scale}
+                      pointerEvents="none"
+                    />
+                  )}
+                  <polygon
+                    points={shape(polygon)}
+                    fill="transparent"
+                    stroke="#184f96"
+                    strokeWidth={2 / view.scale}
+                  />
+                  {body.mode === 'wall' && polygon[body.wallIndex] && (
+                    <line
+                      x1={polygon[body.wallIndex].x}
+                      y1={polygon[body.wallIndex].y}
+                      x2={polygon[(body.wallIndex + 1) % polygon.length].x}
+                      y2={polygon[(body.wallIndex + 1) % polygon.length].y}
+                      stroke="#d7336a"
+                      strokeWidth={4 / view.scale}
+                    />
+                  )}
+                  {polygon.map((p, i) => {
+                    const q = polygon[(i + 1) % polygon.length]
+                    return (
+                      <text
+                        key={i}
+                        x={(p.x + q.x) / 2}
+                        y={(p.y + q.y) / 2}
+                        fontSize={12 / view.scale}
+                        fill="#184f96"
+                        stroke="white"
+                        strokeWidth={3 / view.scale}
+                        paintOrder="stroke"
+                        textAnchor="middle"
+                        pointerEvents="none"
+                      >
+                        壁{i + 1}
+                      </text>
+                    )
+                  })}
+                  {computed.result?.roll && (
+                    <RollOverlay
+                      strips={computed.result.roll.strips}
+                      scale={view.scale}
+                      layoutType={body.layoutType}
+                      showDimensions={showSheetDimensions}
+                    />
+                  )}
+                  {computed.result && showDimensions && wallDimensions?.inside && (
+                    <LayoutDimensionsOverlay
+                      anchor={computed.result.anchor}
+                      dimensions={wallDimensions.dimensions}
+                      layoutType={body.layoutType}
+                      scale={view.scale}
+                      avoidPoint={
+                        isRoll && showSheetDimensions && body.mode === 'wall'
+                          ? {
+                              x: polygon.reduce((sum, p) => sum + p.x, 0) / polygon.length,
+                              y: polygon.reduce((sum, p) => sum + p.y, 0) / polygon.length
+                            }
+                          : undefined
+                      }
+                    />
+                  )}
+                  {computed.result && (
+                    <g
+                      transform={`translate(${computed.result.anchor.x},${computed.result.anchor.y})`}
+                      pointerEvents="none"
+                      stroke="#d7336a"
+                      strokeWidth={2 / view.scale}
+                    >
+                      <line x1={-12 / view.scale} x2={12 / view.scale} />
+                      <line y1={-12 / view.scale} y2={12 / view.scale} />
+                    </g>
+                  )}
+                </svg>
+              )
+            }
           />
           <div className="layout-results">
             {loaded && needsDimensions && (
@@ -825,7 +934,10 @@ export function LayoutEditor({
             )}
             {computed.result && (
               <>
-                <strong>部屋面積 {computed.result.roomArea.toFixed(1)} ㎡</strong>
+                <strong>
+                  {body.customPolygon ? '割り付け面積' : '部屋面積'}{' '}
+                  {computed.result.roomArea.toFixed(1)} ㎡
+                </strong>
                 {computed.result.roll ? (
                   <RollResults
                     roll={computed.result.roll}
@@ -868,7 +980,7 @@ export function LayoutEditor({
         </div>
         <button
           className="secondary"
-          disabled={busy || !loaded || !computed.result}
+          disabled={busy || !loaded || drawingBoundary || !computed.result}
           onClick={() => void previewPdf()}
         >
           PDFプレビュー・保存
@@ -878,7 +990,7 @@ export function LayoutEditor({
         </button>
         <button
           className="primary"
-          disabled={busy || !loaded || !computed.result || !dirty}
+          disabled={busy || !loaded || drawingBoundary || !computed.result || !dirty}
           onClick={() => void save()}
         >
           割り付けを保存

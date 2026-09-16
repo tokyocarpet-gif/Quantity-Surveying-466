@@ -12,6 +12,7 @@ export async function layoutImage(
   scale: number,
   body: LayoutBody
 ): Promise<string> {
+  polygon = body.customPolygon ?? polygon
   const result = computeLayout(polygon, scale, body)
   const page = await pdf.getPage(pageNumber)
   const base = page.getViewport({ scale: 1 })

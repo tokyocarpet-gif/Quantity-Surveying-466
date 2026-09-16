@@ -69,11 +69,13 @@ export function validateLayouts(db: Database.Database): void {
       )?.geometryType === 'wall-line'
     )
       throw new Error('壁の線拾いに床材割り付けは保存できません。')
-    layoutSaveSchema.parse({
+    const parsed = layoutSaveSchema.parse({
       roomId: row.roomId,
       expectedRevision: row.revision,
       sourceKey: row.sourceKey,
       body: JSON.parse(row.body)
     })
+    if ((db.pragma('user_version', { simple: true }) as number) < 16 && parsed.body.customPolygon)
+      throw new Error('割り付け専用範囲はDB v16以降で保存してください。')
   }
 }

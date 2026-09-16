@@ -497,7 +497,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 15)
+    assert.equal(internal.pragma('user_version', { simple: true }), 16)
   } finally {
     f.cleanup()
   }
@@ -1154,11 +1154,11 @@ test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せ
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       const migrated = (reopened as unknown as { db: Database.Database }).db
-      assert.equal(migrated.pragma('user_version', { simple: true }), 15)
+      assert.equal(migrated.pragma('user_version', { simple: true }), 16)
       assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
       assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
       assert.ok(
-        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v15-'))
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v16-'))
       )
     } finally {
       reopened.close()
