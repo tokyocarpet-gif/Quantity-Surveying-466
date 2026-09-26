@@ -5,6 +5,9 @@ directories:
 files:
   - out/**/*
   - package.json
+extraResources:
+  - from: resources/templates
+    to: templates
 asarUnpack:
   - node_modules/better-sqlite3/**/*
 win:

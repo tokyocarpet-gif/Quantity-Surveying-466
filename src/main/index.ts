@@ -1,3 +1,4 @@
+import { summaryXlsxName } from './summary-xlsx'
 import { layoutPrintHtml, layoutPdfName } from './layout-print'
 import { summaryPrintHtml, summaryPdfName } from './summary-print'
 import { randomUUID } from 'node:crypto'
@@ -142,17 +143,14 @@ function registerIpc(): void {
   handle('summary:edit', (input) => storage.editSummary(input))
   handle('summary:read', (input) => storage.readSummary(input))
   handle('summary:export', async (raw) => {
-    const input = summaryExportSchema.parse(raw)
-    const report = storage.readSummary(input.request)
-    if (report.fingerprint !== input.fingerprint)
-      throw new Error('集計内容が更新されています。再集計してから出力してください。')
+    const { report } = storage.summaryXlsxReport(raw)
     const result = await dialog.showSaveDialog(window!, {
-      title: '表示中の集計をCSVに保存',
-      defaultPath: '数量集計.csv',
-      filters: [{ name: 'CSV', extensions: ['csv'] }]
+      title: '集計数量をExcel内訳書に保存',
+      defaultPath: summaryXlsxName(report),
+      filters: [{ name: 'Excelブック', extensions: ['xlsx'] }]
     })
     if (result.canceled || !result.filePath) return null
-    return storage.exportSummary(input, result.filePath)
+    return storage.exportSummaryXlsx(raw, result.filePath)
   })
   handle('workspace:read', () => storage.workspace())
   handle('layout:read', (id) => storage.readLayout(id))

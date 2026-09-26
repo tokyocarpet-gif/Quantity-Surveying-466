@@ -33,6 +33,9 @@ export function SummaryPage(): React.JSX.Element {
     [detail, setDetail] = useState<SummaryRow | null>(null),
     [exporting, setExporting] = useState(false)
   const [pdfRequest, setPdfRequest] = useState<SummaryExport | null>(null)
+  const [excelOpen, setExcelOpen] = useState(false)
+  const [section, setSection] = useState('内装仕上工事')
+  const [excelError, setExcelError] = useState('')
   const [editing, setEditing] = useState<SummaryRow | null>(null)
   const request = useMemo(
     () =>
@@ -87,18 +90,26 @@ export function SummaryPage(): React.JSX.Element {
   const current = request.success ? request.data : null
   const matches =
     !!report && !!current && JSON.stringify(report.request) === JSON.stringify(current)
-  async function exportCsv(): Promise<void> {
-    if (!report || !matches || busy) return
+  async function exportExcel(): Promise<void> {
+    if (!report || !matches || busy || exporting || !section.trim()) return
     setExporting(true)
     setError('')
     setNotice('')
+    setExcelError('')
     try {
       const path = await unwrap(
-        window.sekisan.exportSummary({ request: report.request, fingerprint: report.fingerprint })
+        window.sekisan.exportSummary({
+          request: report.request,
+          fingerprint: report.fingerprint,
+          section: section.trim()
+        })
       )
-      if (path) setNotice(`CSVを保存しました：${path}`)
+      if (path) {
+        setNotice(`Excelを保存しました：${path}`)
+        setExcelOpen(false)
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'CSVを保存できませんでした。')
+      setExcelError(e instanceof Error ? e.message : 'Excelを保存できませんでした。')
     } finally {
       setExporting(false)
     }
@@ -155,10 +166,13 @@ export function SummaryPage(): React.JSX.Element {
           <button
             className="primary"
             disabled={disabled || !matches || !rows.length || !!error}
-            onClick={() => void exportCsv()}
+            onClick={() => {
+              setExcelError('')
+              setExcelOpen(true)
+            }}
           >
             <Download size={16} />
-            表示中の集計をCSV保存
+            表示中の集計をExcel保存
           </button>
         </div>
       </header>
@@ -490,6 +504,53 @@ export function SummaryPage(): React.JSX.Element {
           {report ? `集計日時 ${new Date(report.generatedAt).toLocaleString('ja-JP')}` : ''}
         </span>
       </footer>
+      {excelOpen && report && (
+        <TakeoffDialog title="Excel内訳書を出力" close={() => setExcelOpen(false)} busy={exporting}>
+          <div className="preview-body">
+            <p>
+              元の基本見積もり書を複製し、内訳書へ転記します。表紙・内訳書・マスタの3シートと、内訳10ページ分の空欄行・書式を残します。
+            </p>
+            <p>長い仕様は次の行へ続け、10ページを超える場合だけ同じ枠のページを追加します。</p>
+            <p>対象：{summaryScope(report)}</p>
+            <label>
+              大項目
+              <input
+                aria-label="Excelの大項目"
+                value={section}
+                maxLength={120}
+                disabled={exporting}
+                onChange={(e) => setSection(e.target.value)}
+              />
+            </label>
+            <p>
+              部屋ごとに天井・壁・巾木・床の順で転記します。仕上げ別・図面別を表示していても、同じ対象数量を部屋別にまとめます。
+            </p>
+            <p>
+              数量は小数1位に四捨五入し、金額はその数量×単価を円単位に四捨五入します。画面の参考金額とは差が出る場合があります。
+            </p>
+            <p>
+              単価未設定の明細と、その小計・合計は空欄です。単価・諸経費はExcelで入力してください。Excelでの変更はアプリへ戻りません。
+            </p>
+            {excelError && (
+              <p className="error" role="alert">
+                {excelError}
+              </p>
+            )}
+          </div>
+          <footer className="modal-footer">
+            <button className="secondary" disabled={exporting} onClick={() => setExcelOpen(false)}>
+              キャンセル
+            </button>
+            <button
+              className="primary"
+              disabled={exporting || !section.trim() || !matches || busy}
+              onClick={() => void exportExcel()}
+            >
+              Excelを保存
+            </button>
+          </footer>
+        </TakeoffDialog>
+      )}
       {pdfRequest && <SummaryPdfDialog request={pdfRequest} close={() => setPdfRequest(null)} />}
       {editing && report && (
         <SummaryEditDialog

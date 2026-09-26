@@ -440,3 +440,39 @@ test('数量表示は小数1桁に四捨五入し、内部の計算数量・金�
   assert.equal(r.lines[0].quantity, '12.349')
   assert.equal(r.amount, '12349')
 })
+
+test('集計Excelは絞り込みを維持し、保存直前に古い集計・不正な保存先を拒否する', async () => {
+  const f = await fixture()
+  try {
+    const req = { ...f.req, category: 'floor', pageNumber: 2, drawingId: f.drawing.id }
+    const report = f.storage.readSummary(req)
+    const input = { request: req, fingerprint: report.fingerprint, section: '床仕上工事' }
+    const path = join(f.folder, '内訳.xlsx')
+    const takeoff = f.read(2)
+    f.storage.exportSummaryXlsx(input, path)
+    assert.deepEqual(f.read(2), takeoff)
+    const before = readFileSync(path)
+    assert.equal(before.subarray(0, 2).toString(), 'PK')
+    f.apply(
+      {
+        kind: 'fixed',
+        itemId: takeoff.items.find((i) => i.category === 'floor')!.id,
+        quantity: 20
+      },
+      2
+    )
+    assert.throws(() => f.storage.exportSummaryXlsx(input, path), /再集計/)
+    assert.deepEqual(readFileSync(path), before)
+    const current = { ...input, fingerprint: f.storage.readSummary(req).fingerprint }
+    assert.throws(
+      () => f.storage.exportSummaryXlsx(current, join(f.folder, 'app', 'data', 'oops.xlsx')),
+      /保存先以外/
+    )
+    assert.throws(() => f.storage.exportSummaryXlsx(current, join(f.folder, 'wrong.csv')), /xlsx/)
+    f.storage.exportSummaryXlsx(current, path)
+    assert.ok(!readFileSync(path).equals(before))
+    assert.ok(!readdirSync(f.folder).some((n) => n.includes('.tmp-')))
+  } finally {
+    f.cleanup()
+  }
+})

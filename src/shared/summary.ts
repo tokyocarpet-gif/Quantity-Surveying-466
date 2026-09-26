@@ -27,6 +27,10 @@ export const summaryExportSchema = z
   .object({ request: summaryRequestSchema, fingerprint: z.string().regex(/^[a-f0-9]{64}$/) })
   .strict()
 export type SummaryExport = z.infer<typeof summaryExportSchema>
+export const summaryXlsxExportSchema = summaryExportSchema
+  .extend({ section: z.string().trim().min(1, '大項目を入力してください。').max(120) })
+  .strict()
+export type SummaryXlsxExport = z.infer<typeof summaryXlsxExportSchema>
 export const summaryEditSchema = summaryExportSchema
   .extend({
     rowId: z.string().min(1).max(2048),

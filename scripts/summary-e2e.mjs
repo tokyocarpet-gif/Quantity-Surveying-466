@@ -1,3 +1,4 @@
+import AdmZip from 'adm-zip'
 import { expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -54,7 +55,7 @@ export async function exerciseSummary(page, application, temporary) {
   await ready()
   await expect(page.getByTestId('summary-row')).toHaveCount(0)
   await expect(
-    page.getByRole('button', { name: '表示中の集計をCSV保存', exact: true })
+    page.getByRole('button', { name: '表示中の集計をExcel保存', exact: true })
   ).toBeDisabled()
   await page.getByLabel('集計するページ').selectOption('1')
   await expect(page.getByTestId('summary-row')).toHaveCount(4)
@@ -122,19 +123,26 @@ export async function exerciseSummary(page, application, temporary) {
   await application.evaluate(({ dialog }) => {
     dialog.showSaveDialog = async () => ({ canceled: true })
   })
-  await page.getByRole('button', { name: '表示中の集計をCSV保存', exact: true }).click()
+  await page.getByRole('button', { name: '表示中の集計をExcel保存', exact: true }).click()
+  await page.getByLabel('Excelの大項目').fill('')
+  await expect(page.getByRole('button', { name: 'Excelを保存', exact: true })).toBeDisabled()
+  await page.getByLabel('Excelの大項目').fill('床仕上工事')
+  await page.getByRole('button', { name: 'Excelを保存', exact: true }).click()
   await ready()
   await expect(page.locator('.summary-notice')).toHaveCount(0)
-  const path = join(temporary, '数量集計.csv')
+  const path = join(temporary, '数量内訳.xlsx')
   await application.evaluate(({ dialog }, path) => {
     dialog.showSaveDialog = async () => ({ canceled: false, filePath: path })
   }, path)
-  await page.getByRole('button', { name: '表示中の集計をCSV保存', exact: true }).click()
-  await expect(page.locator('.summary-notice')).toContainText('CSVを保存しました')
-  const csv = readFileSync(path, 'utf8')
-  assert.ok(csv.startsWith('\ufeff'))
-  assert.equal(csv.split('\r\n').length, 3)
-  assert.ok(csv.includes(',15.0,"㎡",4500,67500,'))
-  assert.ok(csv.includes('1ページ / 全部屋 / 床'))
+  await page.getByRole('button', { name: 'Excelを保存', exact: true }).click()
+  await expect(page.locator('.summary-notice')).toContainText('Excelを保存しました')
+  const zip = new AdmZip(readFileSync(path))
+  const detail = zip.readAsText('xl/worksheets/sheet2.xml')
+  assert.ok(detail.includes('床仕上工事'))
+  assert.ok(detail.includes('会議室'))
+  assert.ok(detail.includes('<v>15</v>'))
+  assert.ok(detail.includes('<v>4500</v>'))
+  assert.ok(detail.includes('<v>67500</v>'))
+  assert.ok(!detail.includes('ビニルクロス'))
   await page.getByRole('button', { name: '物件の図面一覧に戻る', exact: true }).click()
 }

@@ -9,7 +9,13 @@ import type {
   EstimateSave,
   EstimateListItem
 } from './estimate'
-import type { SummaryRequest, SummaryReport, SummaryExport, SummaryEdit } from './summary'
+import type {
+  SummaryRequest,
+  SummaryReport,
+  SummaryExport,
+  SummaryXlsxExport,
+  SummaryEdit
+} from './summary'
 import type { MaterialContext, MaterialChange } from './materials'
 import type { PageState, TakeoffMutation, TakeoffPreview } from './takeoff'
 export type ProjectStatus = 'active' | 'completed' | 'archived'
@@ -78,7 +84,7 @@ export interface AppApi {
   listEstimates(projectId: string): Promise<Result<EstimateListItem[]>>
   editSummary(input: SummaryEdit): Promise<Result<SummaryReport>>
   readSummary(request: SummaryRequest): Promise<Result<SummaryReport>>
-  exportSummary(input: SummaryExport): Promise<Result<string | null>>
+  exportSummary(input: SummaryXlsxExport): Promise<Result<string | null>>
   readMaterials(projectId: string | null): Promise<Result<MaterialContext>>
   changeMaterials(change: MaterialChange): Promise<Result<void>>
   readTakeoff(address: { drawingId: string; pageNumber: number }): Promise<Result<PageState>>

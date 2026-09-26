@@ -1,3 +1,5 @@
+import { renderSummaryXlsx } from './summary-xlsx'
+import { saveReportFile } from './export-file'
 import { layoutPdfSchema } from '../shared/layout-pdf'
 import { computeLayout, layoutSourceKey } from '../shared/layout'
 import { LAYOUT_SQL, readLayout, saveLayout, validateLayouts } from './layout-storage'
@@ -36,7 +38,7 @@ import {
 } from 'node:fs'
 import { z } from 'zod'
 import { readSummary, editSummary } from './summary-storage'
-import { summaryCsv, summaryExportSchema } from '../shared/summary'
+import { summaryCsv, summaryExportSchema, summaryXlsxExportSchema } from '../shared/summary'
 import { TAKEOFF_EXTRAS_SQL } from './takeoff-extras-schema'
 import { MASTER_SQL, readMaterials, changeMaterials, validateMasterData } from './master-storage'
 import {
@@ -180,6 +182,18 @@ export class Storage {
   }
   readSummary(input: unknown) {
     return readSummary(this.db, input)
+  }
+  summaryXlsxReport(raw: unknown) {
+    const input = summaryXlsxExportSchema.parse(raw)
+    const report = this.readSummary(input.request)
+    if (report.fingerprint !== input.fingerprint)
+      throw new Error('集計内容が更新されています。再集計してから出力してください。')
+    if (!report.lines.length) throw new Error('出力する数量がありません。')
+    return { report, section: input.section, company: this.readCompany() }
+  }
+  exportSummaryXlsx(raw: unknown, path: string): string {
+    const { report, section, company } = this.summaryXlsxReport(raw)
+    return saveReportFile(path, renderSummaryXlsx(report, section, company), this.root, '.xlsx')
   }
   exportSummary(input: unknown, path: string): string {
     const data = summaryExportSchema.parse(input),
