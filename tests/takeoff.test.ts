@@ -497,7 +497,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 16)
+    assert.equal(internal.pragma('user_version', { simple: true }), 21)
   } finally {
     f.cleanup()
   }
@@ -1148,17 +1148,19 @@ test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せ
     f.apply({ kind: 'deleteRoom', id })
     const oldRooms = db.prepare('SELECT * FROM rooms').all()
     const oldItems = db.prepare('SELECT * FROM takeoff_items').all()
-    db.exec('ALTER TABLE rooms DROP COLUMN geometryType')
+    db.exec(
+      'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
+    )
     db.pragma('user_version = 13')
     f.storage.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       const migrated = (reopened as unknown as { db: Database.Database }).db
-      assert.equal(migrated.pragma('user_version', { simple: true }), 16)
+      assert.equal(migrated.pragma('user_version', { simple: true }), 21)
       assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
       assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
       assert.ok(
-        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v16-'))
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v21-'))
       )
     } finally {
       reopened.close()

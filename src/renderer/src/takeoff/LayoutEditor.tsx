@@ -6,6 +6,8 @@ import {
   defaultLayout,
   layoutBodySchema,
   layoutTypeLabels,
+  tilePatternLabels,
+  tilePatternDescription,
   layoutSourceKey,
   rotate,
   type LayoutBody,
@@ -153,6 +155,7 @@ export function LayoutEditor({
     }
   }, [room.id, projectId])
   const isRoll = body.layoutType !== 'tile'
+  const isHerringbone = !isRoll && body.tilePattern === 'herringbone'
   const needsDimensions = body.widthMm === '' || (!isRoll && body.heightMm === '')
   const computed = useMemo(() => {
     if (needsDimensions) return { result: null, body: null, error: '' }
@@ -164,7 +167,9 @@ export function LayoutEditor({
       return {
         result: null,
         body: null,
-        error: '材料寸法・目地幅・回転角度・移動量を確認してください。'
+        error:
+          parsed.error.issues.find((issue) => issue.code === 'custom')?.message ??
+          '材料寸法・目地幅・回転角度・移動量を確認してください。'
       }
     try {
       return {
@@ -493,6 +498,54 @@ export function LayoutEditor({
                 ))}
               </datalist>
             </div>
+            {!isRoll && (
+              <>
+                <label>
+                  貼り方
+                  <select
+                    aria-label="タイルの貼り方"
+                    value={body.tilePattern}
+                    onChange={(e) =>
+                      change({ tilePattern: e.target.value as LayoutBody['tilePattern'] })
+                    }
+                  >
+                    {Object.entries(tilePatternLabels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {body.tilePattern !== 'straight' && !isHerringbone && (
+                  <>
+                    <label>
+                      ずらす方向
+                      <select
+                        aria-label="タイルをずらす方向"
+                        value={body.staggerAxis}
+                        onChange={(e) =>
+                          change({ staggerAxis: e.target.value as LayoutBody['staggerAxis'] })
+                        }
+                      >
+                        <option value="width">W（幅）方向</option>
+                        <option value="length">L（長さ）方向</option>
+                      </select>
+                    </label>
+                    <p>
+                      目地を含む寸法を基準に、各段を順にずらします。1/2は2段、1/3は3段、1/4は4段で元の位置に戻ります。
+                    </p>
+                    <p>
+                      芯割り・芯跨ぎは基準点を通る段の位置です。向きは回転、位置は図面のドラッグや微調整で変更できます。
+                    </p>
+                  </>
+                )}
+                {isHerringbone && (
+                  <p>
+                    長方形の材料を90°ずつ組み合わせます。0°では材料を基準方向に対して斜め45°に配置します。目地幅も反映します。
+                  </p>
+                )}
+              </>
+            )}
             {isRoll && !(body.layoutType === 'carpet' && body.rollCutMode === 'free') && (
               <label className="layout-dimension-toggle">
                 <input
@@ -543,7 +596,8 @@ export function LayoutEditor({
             <div className="layout-presets">
               <button
                 className={
-                  body.mode === 'center' && body.axisX === 'joint' && body.axisY === 'joint'
+                  body.mode === 'center' &&
+                  (isHerringbone || (body.axisX === 'joint' && body.axisY === 'joint'))
                     ? 'primary'
                     : 'secondary'
                 }
@@ -551,46 +605,56 @@ export function LayoutEditor({
                   change({ mode: 'center', axisX: 'joint', axisY: 'joint', offsetX: 0, offsetY: 0 })
                 }
               >
-                芯割り<span>{isRoll ? '中心に継ぎ目' : '中心に目地'}</span>
+                {isHerringbone ? '柄の中心' : '芯割り'}
+                <span>
+                  {isHerringbone ? '中心に柄の基準点' : isRoll ? '中心に継ぎ目' : '中心に目地'}
+                </span>
               </button>
-              <button
-                className={
-                  body.mode === 'center' && body.axisX === 'tile' && body.axisY === 'tile'
-                    ? 'primary'
-                    : 'secondary'
-                }
-                onClick={() =>
-                  change({ mode: 'center', axisX: 'tile', axisY: 'tile', offsetX: 0, offsetY: 0 })
-                }
-              >
-                芯跨ぎ<span>中心に材料</span>
-              </button>
+              {!isHerringbone && (
+                <button
+                  className={
+                    body.mode === 'center' && body.axisX === 'tile' && body.axisY === 'tile'
+                      ? 'primary'
+                      : 'secondary'
+                  }
+                  onClick={() =>
+                    change({ mode: 'center', axisX: 'tile', axisY: 'tile', offsetX: 0, offsetY: 0 })
+                  }
+                >
+                  芯跨ぎ<span>中心に材料</span>
+                </button>
+              )}
               <button
                 className={body.mode === 'wall' ? 'primary' : 'secondary'}
                 onClick={() => change({ mode: 'wall', angle: 0, offsetX: 0, offsetY: 0 })}
               >
-                壁寄せ<span>壁から真物</span>
+                {isHerringbone ? '壁を基準' : '壁寄せ'}
+                <span>{isHerringbone ? '壁の端に柄の基準点' : '壁から真物'}</span>
               </button>
             </div>
             {body.mode === 'center' ? (
               <>
-                <div className="layout-grid">
-                  {(isRoll ? (['axisX'] as const) : (['axisX', 'axisY'] as const)).map((key, i) => (
-                    <label key={key}>
-                      {i === 0 ? '横方向' : '縦方向'}
-                      <select
-                        aria-label={`割付の${i === 0 ? '横' : '縦'}方向の基準`}
-                        value={body[key]}
-                        onChange={(e) => change({ [key]: e.target.value })}
-                      >
-                        <option value="joint">
-                          {isRoll ? '芯割り（継ぎ目）' : '芯割り（目地芯）'}
-                        </option>
-                        <option value="tile">芯跨ぎ（材料芯）</option>
-                      </select>
-                    </label>
-                  ))}
-                </div>
+                {!isHerringbone && (
+                  <div className="layout-grid">
+                    {(isRoll ? (['axisX'] as const) : (['axisX', 'axisY'] as const)).map(
+                      (key, i) => (
+                        <label key={key}>
+                          {i === 0 ? '横方向' : '縦方向'}
+                          <select
+                            aria-label={`割付の${i === 0 ? '横' : '縦'}方向の基準`}
+                            value={body[key]}
+                            onChange={(e) => change({ [key]: e.target.value })}
+                          >
+                            <option value="joint">
+                              {isRoll ? '芯割り（継ぎ目）' : '芯割り（目地芯）'}
+                            </option>
+                            <option value="tile">芯跨ぎ（材料芯）</option>
+                          </select>
+                        </label>
+                      )
+                    )}
+                  </div>
+                )}
                 <p>回転後の部屋を囲む長方形の中心を基準にします。</p>
               </>
             ) : (
@@ -616,6 +680,21 @@ export function LayoutEditor({
                   ))}
                 </select>
               </label>
+            )}
+            {isHerringbone && (
+              <div className="layout-roll-direction">
+                <p>
+                  基準点は2枚を組み合わせる角の位置です。壁際も切り物になるため、図面を見ながら位置を調整してください。
+                </p>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    change({ angle: body.angle + 90 > 180 ? body.angle - 270 : body.angle + 90 })
+                  }
+                >
+                  柄を90°回転
+                </button>
+              </div>
             )}
             {isRoll && (
               <div className="layout-roll-direction">
@@ -948,6 +1027,7 @@ export function LayoutEditor({
                   />
                 ) : (
                   <>
+                    <span data-testid="layout-tile-pattern">{tilePatternDescription(body)}</span>
                     <span>真物 {computed.result.full} 枚</span>
                     <span>切り物 {computed.result.cut} 枚</span>
                     <span>使用元材 {computed.result.full + computed.result.cut} 枚</span>

@@ -1,3 +1,4 @@
+import { WALL_LAYOUT_SQL } from './wall-layout-storage'
 import { LAYOUT_SQL } from './layout-storage'
 import { COUNT_SQL } from './count-storage'
 import { BUSINESS_SQL } from './business-storage'
@@ -48,6 +49,10 @@ PRAGMA user_version = 15;
 `
 
 export const LAYOUT_BOUNDARY_SQL = `PRAGMA user_version = 16;`
+export const TILE_PATTERN_SQL = `PRAGMA user_version = 17;`
+export const WALL_START_SIDE_SQL = `PRAGMA user_version = 21;`
+export const WALL_PANEL_SQL = `PRAGMA user_version = 20;`
+export const HERRINGBONE_SQL = `PRAGMA user_version = 18;`
 
 export function initializeSchema(db: Database.Database, version: number): void {
   db.transaction(() => {
@@ -67,5 +72,10 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 14) db.exec(WALL_LENGTH_SQL)
     if (version < 15) db.exec(WALL_LINE_SQL)
     if (version < 16) db.exec(LAYOUT_BOUNDARY_SQL)
+    if (version < 17) db.exec(TILE_PATTERN_SQL)
+    if (version < 18) db.exec(HERRINGBONE_SQL)
+    if (version < 19) db.exec(WALL_LAYOUT_SQL)
+    if (version < 20) db.exec(WALL_PANEL_SQL)
+    if (version < 21) db.exec(WALL_START_SIDE_SQL)
   })()
 }

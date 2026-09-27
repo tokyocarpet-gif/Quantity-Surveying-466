@@ -1,3 +1,4 @@
+import { nextEstimateNumber } from '../src/main/estimate-storage'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID, createHash } from 'node:crypto'
@@ -185,7 +186,8 @@ test('集計から小数1桁の見積を作り、保存ごとの版・元拾い�
     const snapshot = f.storage.readTakeoff(f.address),
       first = f.create()
     assert.equal(first.body.lines[0].quantity, '12.3')
-    assert.equal(first.totals.total, '12300')
+    assert.equal(first.totals.subtotal, '12300')
+    assert.equal(first.totals.total, '13530')
     assert.equal(first.source.lines[0].quantity, '12.349')
     const second = f.storage.saveEstimate({
       id: first.id,
@@ -324,11 +326,11 @@ test('v4からv8へ退避して移行し、旧バックアップを復元する'
   const storage = new Storage(root)
   try {
     assert.equal(storage.workspace().clients[0].name, '旧顧客')
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v21-')))
     await storage.restoreBackup(backup)
     assert.equal(storage.workspace().clients[0].id, id)
     const db = new Database(path, { readonly: true })
-    assert.equal(db.pragma('user_version', { simple: true }), 16)
+    assert.equal(db.pragma('user_version', { simple: true }), 21)
     db.close()
   } finally {
     storage.close()
@@ -387,6 +389,8 @@ test('自社情報と仕様を見積に引き継ぎ、その後の変更から�
     f.storage.saveCompany({
       ...emptyCompany(),
       name: '施工会社',
+      constructionLicense: '東京都知事許可（般2）第12226号',
+      fireCertification: '消防庁認定第12703号',
       postalCode: '100-0001',
       address: '東京都',
       phone: '03-0000-0000',
@@ -412,7 +416,11 @@ test('自社情報と仕様を見積に引き継ぎ、その後の変更から�
     assert.equal(state.items[0].specification, specification)
     const first = f.create()
     assert.match(first.body.issuer, /施工会社\n〒100-0001\n東京都\nTEL 03-0000-0000/)
-    assert.equal(first.body.lines[0].specification, specification)
+    assert.equal(first.body.issuerCompany?.constructionLicense, '東京都知事許可（般2）第12226号')
+    assert.equal(first.body.issuerCompany?.fireCertification, '消防庁認定第12703号')
+    assert.equal(first.body.lines[0].name, first.body.lines[0].room)
+    assert.equal(first.body.lines[0].specification, '床材')
+    assert.equal(first.body.lines[0].specification2, specification)
     assert.equal(first.source.lines[0].specification, specification)
     assert.equal(f.report().rows[0].specification, specification)
     assert.ok(estimatePrintHtml(first).includes(specification))
@@ -426,14 +434,11 @@ test('自社情報と仕様を見積に引き継ぎ、その後の変更から�
     await f.storage.createBackup(backup)
     await f.storage.restoreBackup(backup)
     assert.equal(
-      f.storage.readEstimate({ id: first.id }).body.lines[0].specification,
+      f.storage.readEstimate({ id: first.id }).body.lines[0].specification2,
       specification
     )
-    assert.equal(first.body.taxRate, 0)
-    assert.equal(
-      first.body.conditions,
-      '有効期限：発行日から30日間\n支払条件：月末締め・翌月末払い\n工事日程は別途協議'
-    )
+    assert.equal(first.body.taxRate, 10)
+    assert.equal(first.body.conditions, '支払条件：月末締め・翌月末払い\n工事日程は別途協議')
     f.storage.saveCompany({ ...emptyCompany(), name: '新会社' })
     report = f.report()
     f.storage.editSummary({
@@ -446,7 +451,8 @@ test('自社情報と仕様を見積に引き継ぎ、その後の変更から�
     const next = f.create()
     assert.equal(next.body.issuer, '新会社')
     assert.equal(next.body.conditions, '')
-    assert.equal(next.body.lines[0].specification, '別規格')
+    assert.equal(next.body.lines[0].specification, '床材')
+    assert.equal(next.body.lines[0].specification2, '別規格')
     const legacy = f.storage.saveEstimate({
       id: first.id,
       expectedRevision: 1,
@@ -523,6 +529,74 @@ test('旧見積の追加項目は空欄で読み、無変更保存で版を増�
       { lines: [{ ...loaded.body.lines[0], note: '長'.repeat(501) }] }
     ])
       assert.equal(estimateBodySchema.safeParse({ ...loaded.body, ...patch }).success, false)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('見積番号は年別連番。履歴の手入力を避け、削除後も番号を再利用しない', () => {
+  const db = new Database(':memory:')
+  try {
+    db.exec(
+      'CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);CREATE TABLE estimate_revisions(body TEXT)'
+    )
+    assert.equal(nextEstimateNumber(db, '2026-09-27'), '2026-0001')
+    assert.equal(nextEstimateNumber(db, '2026-09-27'), '2026-0002')
+    db.prepare('INSERT INTO estimate_revisions VALUES (?)').run(
+      JSON.stringify({ number: '2026-0123' })
+    )
+    assert.equal(nextEstimateNumber(db, '2026-09-27'), '2026-0124')
+    db.exec('DELETE FROM estimate_revisions')
+    assert.equal(nextEstimateNumber(db, '2026-09-27'), '2026-0125')
+    assert.equal(nextEstimateNumber(db, '2027-01-01'), '2027-0001')
+    assert.throws(() =>
+      db.transaction(() => {
+        nextEstimateNumber(db, '2027-01-01')
+        throw Error('rollback')
+      })()
+    )
+    assert.equal(nextEstimateNumber(db, '2027-01-01'), '2027-0002')
+  } finally {
+    db.close()
+  }
+})
+test('保存済み見積番号の重複変更を拒否し、旧番号と自由行は版履歴で保持する', async () => {
+  const f = await fixture()
+  try {
+    const a = f.create(),
+      b = f.create()
+    assert.match(a.body.number, /^\d{4}-\d{4}$/)
+    assert.notEqual(a.body.number, b.body.number)
+    assert.throws(
+      () =>
+        f.storage.saveEstimate({
+          id: b.id,
+          expectedRevision: 1,
+          body: { ...b.body, number: a.body.number }
+        }),
+      /使われています/
+    )
+    const row = {
+      ...b.body.lines[0],
+      id: randomUUID(),
+      name: '現場管理費',
+      quantity: '1.0',
+      unitPrice: 500
+    }
+    const saved = f.storage.saveEstimate({
+      id: b.id,
+      expectedRevision: 1,
+      body: { ...b.body, coverExtras: [row] }
+    })
+    assert.equal(saved.body.number, b.body.number)
+    const xml = new AdmZip(renderEstimateXlsx(saved)).readAsText('xl/worksheets/sheet1.xml')
+    assert.match(xml, /現場管理費/)
+    assert.match(xml, /500/)
+    assert.equal(f.storage.readEstimate({ id: b.id, revision: 1 }).body.coverExtras, undefined)
+    const path = join(f.folder, 'cover.sekisan-backup')
+    await f.storage.createBackup(path)
+    await f.storage.restoreBackup(path)
+    assert.deepEqual(f.storage.readEstimate({ id: b.id }).body.coverExtras, [row])
   } finally {
     f.cleanup()
   }

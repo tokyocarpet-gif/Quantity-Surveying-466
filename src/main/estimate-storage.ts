@@ -1,5 +1,5 @@
 import { readCompany } from './business-storage'
-import { companyIssuer, companyConditions } from '../shared/business'
+import { companyIssuer, companyIdentity } from '../shared/business'
 import type Database from 'better-sqlite3'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -71,9 +71,38 @@ export function listEstimates(db: Database.Database, raw: unknown): EstimateList
       number: body.number,
       revision: r.revision,
       updatedAt: r.savedAt,
-      total: calculateEstimate(body).subtotal
+      total:
+        body.taxDisplay === 'inclusive'
+          ? calculateEstimate(body).total
+          : calculateEstimate(body).subtotal
     }
   })
+}
+/** Persist the annual high-water mark so deleting a project does not reuse its numbers. */
+export function nextEstimateNumber(db: Database.Database, date: string): string {
+  const year = z.iso.date().parse(date).slice(0, 4),
+    key = `estimate-number:${year}`
+  return db.transaction(() => {
+    const saved = db.prepare('SELECT value FROM settings WHERE key=?').get(key) as
+      { value: string } | undefined
+    let highest = saved ? Number(saved.value) : 0
+    if (!Number.isSafeInteger(highest) || highest < 0)
+      throw new Error('見積番号の連番設定が不正です。')
+    for (const row of db
+      .prepare(
+        "SELECT json_extract(body,'$.number') AS number FROM estimate_revisions WHERE json_extract(body,'$.number') LIKE ?"
+      )
+      .all(`${year}-%`) as { number: string }[]) {
+      const match = new RegExp(`^${year}-(\\d{4,9})$`).exec(row.number)
+      if (match) highest = Math.max(highest, Number(match[1]))
+    }
+    const next = highest + 1
+    if (next > 999999999) throw new Error('見積番号の上限に達しました。')
+    db.prepare(
+      'INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value'
+    ).run(key, String(next))
+    return `${year}-${String(next).padStart(4, '0')}`
+  })()
 }
 export function createEstimate(db: Database.Database, raw: unknown): EstimateDoc {
   const input = estimateCreateSchema.parse(raw)
@@ -89,13 +118,20 @@ export function createEstimate(db: Database.Database, raw: unknown): EstimateDoc
       company = readCompany(db)
     const body: EstimateBody = estimateBodySchema.parse({
       title: report.projectName,
-      number: `M-${date.replaceAll('-', '')}-${id.slice(0, 8)}`,
+      number: nextEstimateNumber(db, date),
       date,
       recipient: report.clientName,
       issuer: companyIssuer(company),
-      conditions: companyConditions(company),
+      issuerCompany: companyIdentity(company),
+      conditions: [
+        company.paymentTerms ? `支払条件：${company.paymentTerms}` : '',
+        company.otherConditions
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      expiry: company.estimateValidity,
       memo: '',
-      taxRate: 0,
+      taxRate: 10,
       amountRounding: 'round',
       taxRounding: 'truncate',
       lines: estimateLinesFromSummary(report, ids)
@@ -133,6 +169,16 @@ export function saveEstimate(db: Database.Database, raw: unknown): EstimateDoc {
       throw new Error(
         '見積が別の操作で更新されています。入力内容を控えて最新の版を開き直してください。'
       )
+    if (
+      input.body.number !== old.body.number &&
+      input.body.number &&
+      db
+        .prepare(
+          "SELECT 1 FROM estimate_revisions WHERE estimateId<>? AND json_extract(body,'$.number')=? LIMIT 1"
+        )
+        .get(input.id, input.body.number)
+    )
+      throw new Error('この見積番号は別の見積で使われています。別の番号を入力してください。')
     if (JSON.stringify(old.body) === JSON.stringify(input.body)) return old
     db.prepare('INSERT INTO estimate_revisions VALUES (?,?,?,?)').run(
       input.id,

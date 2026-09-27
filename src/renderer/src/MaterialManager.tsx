@@ -1,3 +1,5 @@
+import { builtinCatalogValues } from '../../shared/business'
+import { WallpaperMasterFields } from './WallpaperFields'
 import { layoutTypeLabels } from '../../shared/layout'
 import { TileSizeFields } from './TileSizeFields'
 import { useEffect, useState, type KeyboardEvent } from 'react'
@@ -93,7 +95,12 @@ export function MaterialManager({
         query
       )
     ) ?? []
-  const [option, setOption] = useState<{ kind: 'part' | 'unit'; name: string } | null>(null)
+  const [option, setOption] = useState<{
+    kind: 'part' | 'unit'
+    name: string
+    oldName?: string
+  } | null>(null)
+  const [optionList, setOptionList] = useState<'part' | 'unit' | null>(null)
   const parts = [
     ...new Set([
       ...categories,
@@ -132,6 +139,22 @@ export function MaterialManager({
             onClick={() => setOption({ kind: 'unit', name: '' })}
           >
             単位を追加
+          </button>
+        </div>
+        <div className="master-actions">
+          <button
+            className="secondary"
+            disabled={busy || !!edit}
+            onClick={() => setOptionList('part')}
+          >
+            部位の一覧・編集
+          </button>
+          <button
+            className="secondary"
+            disabled={busy || !!edit}
+            onClick={() => setOptionList('unit')}
+          >
+            単位の一覧・編集
           </button>
         </div>
         <div className="master-tabs">
@@ -253,6 +276,11 @@ export function MaterialManager({
                     <strong>{m.name}</strong>
                     {m.specification && <span>仕様：{m.specification}</span>}
                     {materialStandard(m) && <span>規格：{materialStandard(m)}</span>}
+                    {m.wallpaper && (
+                      <span>
+                        クロス：有効幅 {m.wallpaper.widthMm}mm · 縦リピート {m.wallpaper.repeatMm}mm
+                      </span>
+                    )}
                     <span>
                       {m.unitPrice === null
                         ? `単価未設定 · ${m.unit}`
@@ -303,6 +331,17 @@ export function MaterialManager({
               const f = new FormData(e.currentTarget)
               try {
                 const input = materialInputSchema.parse({
+                  wallpaper: f.get('wallpaperEnabled')
+                    ? {
+                        widthMm: Number(f.get('wp-widthMm')),
+                        repeatMm: Number(f.get('wp-repeatMm')),
+                        horizontalRepeatMm: Number(f.get('wp-horizontalRepeatMm')),
+                        match: f.get('wp-match'),
+                        stepMm: Number(f.get('wp-stepMm')),
+                        rollLengthMm:
+                          f.get('wp-rollLengthMm') === '' ? null : Number(f.get('wp-rollLengthMm'))
+                      }
+                    : null,
                   projectId: scope === 'project' ? projectId : null,
                   category: f.get('category'),
                   name: f.get('name'),
@@ -370,6 +409,7 @@ export function MaterialManager({
               />
             </label>
             <TileSizeFields material={edit === 'new' ? null : edit} />
+            <WallpaperMasterFields initial={edit === 'new' ? null : edit.wallpaper} />
             <label>
               単位
               <select
@@ -422,9 +462,59 @@ export function MaterialManager({
           閉じる
         </button>
       </footer>
+      {optionList && (
+        <TakeoffDialog
+          title={optionList === 'part' ? '部位の一覧・編集' : '単位の一覧・編集'}
+          close={() => setOptionList(null)}
+          busy={busy}
+        >
+          <div className="master-body">
+            <p className="panel-description">
+              共通設定です。名前を変更すると、共通・全物件の材料マスタに反映します。保存済みの拾い出し・見積は変更しません。基本項目は数量計算に使用するため固定です。
+            </p>
+            <div className="catalog-option-list">
+              {(optionList === 'part' ? parts : units).map((name) => (
+                <div className="catalog-option-row" key={name}>
+                  <span>{optionList === 'part' ? partLabel(name) : name}</span>
+                  {builtinCatalogValues(optionList).includes(name) ? (
+                    <small>基本項目</small>
+                  ) : (
+                    <button
+                      className="secondary"
+                      disabled={busy}
+                      aria-label={`${optionList === 'part' ? '部位' : '単位'}「${name}」を編集`}
+                      onClick={() => {
+                        setError('')
+                        setOption({ kind: optionList, name, oldName: name })
+                      }}
+                    >
+                      編集
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <footer className="modal-footer">
+            <button className="secondary" disabled={busy} onClick={() => setOptionList(null)}>
+              閉じる
+            </button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={() => {
+                setError('')
+                setOption({ kind: optionList, name: '' })
+              }}
+            >
+              項目を追加
+            </button>
+          </footer>
+        </TakeoffDialog>
+      )}
       {option && (
         <TakeoffDialog
-          title={option.kind === 'part' ? '部位を追加' : '単位を追加'}
+          title={`${option.kind === 'part' ? '部位' : '単位'}を${option.oldName === undefined ? '追加' : '編集'}`}
           close={() => setOption(null)}
           busy={busy}
         >
@@ -436,7 +526,18 @@ export function MaterialManager({
               setBusy(true)
               setError('')
               try {
-                await unwrap(window.sekisan.addCatalogOption(option))
+                if (option.oldName !== undefined)
+                  await unwrap(
+                    window.sekisan.renameCatalogOption({
+                      kind: option.kind,
+                      oldName: option.oldName,
+                      name: option.name
+                    })
+                  )
+                else
+                  await unwrap(
+                    window.sekisan.addCatalogOption({ kind: option.kind, name: option.name })
+                  )
                 await refresh()
                 setOption(null)
               } catch (e) {
@@ -449,7 +550,7 @@ export function MaterialManager({
             <label>
               {option.kind === 'part' ? '部位名' : '単位名'}
               <input
-                aria-label={option.kind === 'part' ? '追加する部位名' : '追加する単位名'}
+                aria-label={`${option.oldName === undefined ? '追加' : '変更'}する${option.kind === 'part' ? '部位名' : '単位名'}`}
                 autoFocus
                 required
                 maxLength={option.kind === 'part' ? 120 : 20}
@@ -464,7 +565,7 @@ export function MaterialManager({
               </p>
             )}
             <button type="submit" className="primary" disabled={busy}>
-              追加して保存
+              {option.oldName === undefined ? '追加して保存' : '変更して保存'}
             </button>
           </form>
         </TakeoffDialog>

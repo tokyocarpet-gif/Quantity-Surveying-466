@@ -43,7 +43,7 @@ function requireProject(db: Database.Database, projectId: string): void {
 export function readMaterials(db: Database.Database, raw: unknown): MaterialContext {
   const projectId = idSchema.nullable().parse(raw)
   if (projectId) requireProject(db, projectId)
-  return {
+  const result: MaterialContext = {
     ...readCatalogOptions(db),
     global: db
       .prepare(
@@ -76,6 +76,10 @@ export function readMaterials(db: Database.Database, raw: unknown): MaterialCont
         ).map((r) => r.name)
       : []
   }
+  for (const m of [...result.global, ...result.project]) {
+    m.wallpaper = m.wallpaper ? JSON.parse(m.wallpaper as unknown as string) : null
+  }
+  return result
 }
 export function changeMaterials(db: Database.Database, raw: unknown): void {
   const change = materialChangeSchema.parse(raw)
@@ -87,8 +91,12 @@ export function changeMaterials(db: Database.Database, raw: unknown): void {
       if (old && old.projectId !== change.input.projectId)
         throw new Error('共通・物件マスタの所属は変更できません。')
       db.prepare(
-        'INSERT INTO materials(id,projectId,category,name,unitPrice,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType) VALUES (@id,@projectId,@category,@name,@unitPrice,@specification,@unit,@tileWidthMm,@tileHeightMm,@tileGapMm,@tileThicknessMm,@layoutType) ON CONFLICT(id) DO UPDATE SET category=excluded.category,name=excluded.name,unitPrice=excluded.unitPrice,specification=excluded.specification,unit=excluded.unit,tileWidthMm=excluded.tileWidthMm,tileHeightMm=excluded.tileHeightMm,tileGapMm=excluded.tileGapMm,tileThicknessMm=excluded.tileThicknessMm,layoutType=excluded.layoutType'
-      ).run({ id: change.id, ...change.input })
+        'INSERT INTO materials(id,projectId,category,name,unitPrice,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType,wallpaper) VALUES (@id,@projectId,@category,@name,@unitPrice,@specification,@unit,@tileWidthMm,@tileHeightMm,@tileGapMm,@tileThicknessMm,@layoutType,@wallpaper) ON CONFLICT(id) DO UPDATE SET category=excluded.category,name=excluded.name,unitPrice=excluded.unitPrice,specification=excluded.specification,unit=excluded.unit,tileWidthMm=excluded.tileWidthMm,tileHeightMm=excluded.tileHeightMm,tileGapMm=excluded.tileGapMm,tileThicknessMm=excluded.tileThicknessMm,layoutType=excluded.layoutType,wallpaper=excluded.wallpaper'
+      ).run({
+        id: change.id,
+        ...change.input,
+        wallpaper: change.input.wallpaper ? JSON.stringify(change.input.wallpaper) : null
+      })
     } else if (change.kind === 'delete') {
       if (!db.prepare('DELETE FROM materials WHERE id=?').run(change.id).changes)
         throw new Error('対象の仕上げ材がありません。')
@@ -106,7 +114,7 @@ export function changeMaterials(db: Database.Database, raw: unknown): void {
         )
           continue
         db.prepare(
-          'INSERT INTO materials(id,projectId,category,name,unitPrice,sourceId,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          'INSERT INTO materials(id,projectId,category,name,unitPrice,sourceId,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType,wallpaper) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         ).run(
           randomUUID(),
           change.projectId,
@@ -120,7 +128,8 @@ export function changeMaterials(db: Database.Database, raw: unknown): void {
           source.tileHeightMm,
           source.tileGapMm,
           source.tileThicknessMm,
-          source.layoutType
+          source.layoutType,
+          source.wallpaper ?? null
         )
       }
     }
@@ -141,7 +150,10 @@ export function validateMasterData(db: Database.Database): void {
   const materials = db.prepare('SELECT * FROM materials').all() as Material[]
   for (const { id, sourceId, ...input } of materials) {
     idSchema.parse(id)
-    materialInputSchema.parse(input)
+    materialInputSchema.parse({
+      ...input,
+      wallpaper: input.wallpaper ? JSON.parse(input.wallpaper as unknown as string) : undefined
+    })
     if (
       sourceId !== null &&
       (!input.projectId || !materials.some((m) => m.id === sourceId && m.projectId === null))

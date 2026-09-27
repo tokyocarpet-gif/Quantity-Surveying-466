@@ -15,6 +15,7 @@ import {
 import { emptyFinishes } from '../src/shared/takeoff'
 import { Storage } from '../src/main/storage'
 import { initializeSchema } from '../src/main/schema'
+import { validateLayouts } from '../src/main/layout-storage'
 const rect = (w: number, h: number) => [
   { x: 0, y: 0 },
   { x: w, y: 0 },
@@ -179,7 +180,16 @@ test('材料寸法と部屋の配置を保存・復元し、競合と形状変�
       roomId,
       expectedRevision: 0,
       sourceKey: layoutSourceKey(polygon, 0.01),
-      body: { ...base(), materialId: material.id, offsetX: 10, customPolygon: rect(600, 300) }
+      body: {
+        ...base(),
+        tilePattern: 'herringbone' as const,
+        widthMm: 150,
+        heightMm: 600,
+        staggerAxis: 'length' as const,
+        materialId: material.id,
+        offsetX: 10,
+        customPolygon: rect(600, 300)
+      }
     }
     const takeoffBefore = s.readTakeoff(address)
     const saved = s.saveLayout(request)
@@ -221,6 +231,54 @@ test('材料寸法と部屋の配置を保存・復元し、競合と形状変�
     } finally {
       reopened.close()
     }
+    // A v16 database has no pattern fields. Migration must not rewrite its
+    // stored layout JSON or takeoff data, and must create a recovery copy.
+    const legacy = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
+    const { tilePattern, staggerAxis, ...oldBody } = saved.body
+    legacy
+      .prepare('UPDATE room_layouts SET body=? WHERE roomId=?')
+      .run(JSON.stringify(oldBody), roomId)
+    legacy.exec('DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper')
+    legacy.pragma('user_version = 16')
+    const oldRows = legacy.prepare('SELECT * FROM room_layouts').all()
+    legacy.close()
+    const migrated = new Storage(join(folder, 'app'))
+    try {
+      assert.equal(migrated.readLayout(roomId)!.body.tilePattern, 'straight')
+      assert.equal(migrated.readLayout(roomId)!.body.staggerAxis, 'width')
+      assert.deepEqual(migrated.readTakeoff(address), takeoffBefore)
+      const db = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
+      assert.equal(db.pragma('user_version', { simple: true }), 21)
+      assert.deepEqual(db.prepare('SELECT * FROM room_layouts').all(), oldRows)
+      db.close()
+      assert.ok(
+        readdirSync(join(folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v21-'))
+      )
+    } finally {
+      migrated.close()
+    }
+    const old17 = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
+    old17.exec('DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper')
+    old17.pragma('user_version = 17')
+    old17
+      .prepare('UPDATE room_layouts SET body=? WHERE roomId=?')
+      .run(JSON.stringify(saved.body), roomId)
+    assert.throws(() => validateLayouts(old17), /v18/)
+    old17
+      .prepare('UPDATE room_layouts SET body=? WHERE roomId=?')
+      .run(JSON.stringify({ ...saved.body, tilePattern: 'third' }), roomId)
+    const rows17 = old17.prepare('SELECT * FROM room_layouts').all()
+    old17.close()
+    const migrated17 = new Storage(join(folder, 'app'))
+    try {
+      assert.equal(migrated17.readLayout(roomId)!.body.tilePattern, 'third')
+      const check = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
+      assert.equal(check.pragma('user_version', { simple: true }), 21)
+      assert.deepEqual(check.prepare('SELECT * FROM room_layouts').all(), rows17)
+      check.close()
+    } finally {
+      migrated17.close()
+    }
   } finally {
     s.close()
     rmSync(folder, { recursive: true, force: true })
@@ -234,14 +292,14 @@ test('v8からv9への移行は材料を保持して事前退避する', () => {
   initializeSchema(db, 0)
   // Recreate a genuine v8 schema by removing only the v9 additions.
   db.exec(
-    'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; PRAGMA user_version=8;'
+    'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; DROP TABLE room_layouts; ALTER TABLE materials DROP COLUMN tileWidthMm; ALTER TABLE materials DROP COLUMN tileHeightMm; ALTER TABLE materials DROP COLUMN tileGapMm; PRAGMA user_version=8;'
   )
   db.close()
   const s = new Storage(root)
   try {
     assert.equal(s.readMaterials(null).global.length, 9)
     assert.equal(s.readMaterials(null).global[0].tileWidthMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v21-')))
   } finally {
     s.close()
     rmSync(root, { recursive: true, force: true })
@@ -265,7 +323,7 @@ test('v9の仕様文・寸法・保存済み目地を残して厚み未設定で
     db = new Database(path)
   initializeSchema(db, 0)
   db.exec(
-    'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; PRAGMA user_version=9;'
+    'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; ALTER TABLE materials DROP COLUMN tileThicknessMm; PRAGMA user_version=9;'
   )
   db.prepare(
     "UPDATE materials SET specification=?,tileWidthMm=450,tileHeightMm=900,tileGapMm=2 WHERE category='floor'"
@@ -279,7 +337,7 @@ test('v9の仕様文・寸法・保存済み目地を残して厚み未設定で
     assert.equal(material.tileHeightMm, 900)
     assert.equal(material.tileGapMm, 2)
     assert.equal(material.tileThicknessMm, null)
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v21-')))
   } finally {
     storage.close()
     rmSync(root, { recursive: true, force: true })

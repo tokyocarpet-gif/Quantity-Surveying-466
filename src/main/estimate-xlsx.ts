@@ -1,5 +1,13 @@
 import AdmZip from 'adm-zip'
-import { calculateEstimate, estimateSections, type EstimateDoc } from '../shared/estimate'
+import { structuredIssuer, companyIssuerLines } from '../shared/business'
+import { coverSummariesFor } from '../shared/estimate-cover'
+import {
+  calculateEstimate,
+  estimateSections,
+  coverExtraLinesFor,
+  estimateLineAmount,
+  type EstimateDoc
+} from '../shared/estimate'
 import { partLabel } from '../shared/materials'
 import { estimatePdfName } from './estimate-print'
 import { styleIds, xlsxStyles } from './estimate-xlsx-styles'
@@ -163,7 +171,7 @@ export function estimateWorkbookLayout(doc: EstimateDoc): EstimateWorkbookLayout
         'No.',
         '部屋',
         '部位',
-        '仕上げ・明細',
+        '品名',
         '仕様・規格',
         '数量',
         '単位',
@@ -197,7 +205,13 @@ export function estimateWorkbookLayout(doc: EstimateDoc): EstimateWorkbookLayout
           '',
           shorten('部位', part, 40),
           l.name,
-          shorten('仕様・規格', l.specification, 120),
+          shorten(
+            '仕様・規格',
+            [l.manufacturer, l.specification, l.specification2, l.specification3]
+              .filter(Boolean)
+              .join('　'),
+            120
+          ),
           safeNumber(l.quantity, '数量'),
           l.unit,
           l.unitPrice === null ? null : safeNumber(l.unitPrice, '単価'),
@@ -345,11 +359,25 @@ export function estimateWorkbookLayout(doc: EstimateDoc): EstimateWorkbookLayout
       ? b.recipient
       : `${b.recipient} 御中`
     : '宛先未設定'
+  const issuerCompany = structuredIssuer(b)
   const left = wrap(recipient, 68),
-    right = wrap(b.issuer, 66)
+    right = issuerCompany
+      ? companyIssuerLines(issuerCompany).flatMap((line) =>
+          wrap(line.text, line.kind === 'name' ? 48 : 62).map((text) => ({
+            text: `${['postal', 'address', 'phone', 'extra'].includes(line.kind) ? '　' : ''}${text}`,
+            kind: line.kind
+          }))
+        )
+      : wrap(b.issuer, 66).map((text) => ({ text, kind: 'plain' }))
   for (let i = 0; i < Math.max(left.length, right.length); i++)
     pushCover(
-      row([cell(1, left[i] ?? '', 'recipient', 5), cell(6, right[i] ?? '', 'plain', 5)], 22)
+      row(
+        [
+          cell(1, left[i] ?? '', 'recipient', 5),
+          cell(6, right[i]?.text ?? '', right[i]?.kind === 'name' ? 'heading' : 'plain', 5)
+        ],
+        right[i]?.kind === 'name' ? 26 : 22
+      )
     )
   const totalRow = pushCover(
     row(
@@ -380,7 +408,13 @@ export function estimateWorkbookLayout(doc: EstimateDoc): EstimateWorkbookLayout
   pushCover(columnRow)
   const amountRows: number[] = []
   sections.forEach((s, i) => {
-    const height = Math.max(24, textHeight(s.name, 50))
+    const display = coverSummariesFor(b).find((r) => r.section === s.name)
+    const height = Math.max(
+      24,
+      textHeight(display?.name ?? s.name, 50),
+      textHeight(display?.specification ?? '別紙内訳書通り', 21),
+      textHeight(display?.note ?? '', 21)
+    )
     if (coverHeight + height + 26 > pageHeight) {
       cover.rows.push(whole('', pageHeight - coverHeight))
       coverHeader()
@@ -392,13 +426,51 @@ export function estimateWorkbookLayout(doc: EstimateDoc): EstimateWorkbookLayout
         row(
           [
             cell(1, i + 1),
-            cell(2, s.name, 'text', 3),
-            cell(5, '別紙内訳書通り'),
+            cell(2, display?.name ?? s.name, 'text', 3),
+            cell(5, display?.specification ?? '別紙内訳書通り'),
             cell(6, 1, 'quantity'),
             cell(7, '式'),
             cell(8, number(s.amount), 'money', 1, subtotalAddresses[i]),
             cell(9, number(s.amount), 'money', 1, `IF(ISNUMBER(H${n}),F${n}*H${n},"未確定")`),
-            cell(10, '')
+            cell(10, display?.note ?? '')
+          ],
+          height
+        )
+      )
+    )
+  })
+  coverExtraLinesFor(b).forEach((l) => {
+    const height = Math.max(
+      24,
+      textHeight(l.name, 50),
+      textHeight(l.specification, 21),
+      textHeight(l.note, 21)
+    )
+    if (coverHeight + height + 26 > pageHeight) {
+      cover.rows.push(whole('', pageHeight - coverHeight))
+      coverHeader()
+      pushCover(columnRow)
+    }
+    const n = cover.rows.length + 1,
+      fn = { round: 'ROUND', truncate: 'ROUNDDOWN', away: 'ROUNDUP' }[b.amountRounding]
+    amountRows.push(
+      pushCover(
+        row(
+          [
+            cell(1, l.itemNo ?? ''),
+            cell(2, l.name, 'text', 3),
+            cell(5, l.specification),
+            cell(6, safeNumber(l.quantity, '数量'), 'quantity'),
+            cell(7, l.unit),
+            cell(8, l.unitPrice === null ? null : safeNumber(l.unitPrice, '単価'), 'money'),
+            cell(
+              9,
+              number(estimateLineAmount(l, b.amountRounding)),
+              'money',
+              1,
+              `IF(COUNT(F${n},H${n})=2,${fn}(ROUND(F${n},1)*H${n},0),"未確定")`
+            ),
+            cell(10, l.note)
           ],
           height
         )

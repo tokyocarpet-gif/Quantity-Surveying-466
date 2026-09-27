@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { emptyCompany, companyIdentity, companyIssuer } from '../src/shared/business'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import AdmZip from 'adm-zip'
@@ -190,4 +191,56 @@ test('Excel保存も拡張子と内部データを検証し、既存ファイル
   } finally {
     rmSync(folder, { recursive: true, force: true })
   }
+})
+
+test('会社の許可・認定・会社名・連絡先を表紙へ出力し、会社名を大きくTEL/FAXを同じ行にする', () => {
+  const doc = fixture()
+  const company = companyIdentity({
+    ...emptyCompany(),
+    constructionLicense: '東京都知事許可（般2）第12226号',
+    fireCertification: '消防庁認定第12703号',
+    name: '東京カーペット加工 株式会社',
+    postalCode: '130-0012',
+    address: '東京都墨田区太平4-6-6',
+    phone: '03-3625-4169',
+    fax: '03-3626-2669'
+  })
+  Object.assign(doc.body, { issuerCompany: company, issuer: companyIssuer(company) })
+  const rows = estimateWorkbookLayout(doc).cover.rows
+  const companyCells = rows.flatMap((row) => row.cells.filter((c) => c.col === 6 && c.span === 5))
+  assert.deepEqual(
+    companyCells.slice(0, 6).map((c) => String(c.value).trim()),
+    companyIssuer(company).split('\n')
+  )
+  assert.equal(companyCells[2].style, 'heading')
+  assert.equal(companyCells[0].style, 'plain')
+  const xml = new AdmZip(renderEstimateXlsx(doc))
+    .getEntry('xl/worksheets/sheet1.xml')!
+    .getData()
+    .toString('utf8')
+  assert.match(xml, /消防庁認定第12703号/)
+  assert.match(xml, /TEL 03-3625-4169　FAX 03-3626-2669/)
+})
+
+test('転記した部屋名を品名、材料と規格を仕様欄へ出力する', () => {
+  const doc = fixture()
+  Object.assign(doc.body.lines[0], {
+    name: '会議室',
+    room: '会議室',
+    specification: 'タイルカーペット',
+    specification2: '500×500 mm',
+    specification3: '防炎',
+    manufacturer: 'メーカーA'
+  })
+  const layout = estimateWorkbookLayout(doc)
+  const row = layout.detail.rows.find((r) =>
+    r.cells.some((c) => c.col === 4 && c.value === '会議室')
+  )!
+  assert.ok(row)
+  assert.equal(
+    row.cells.find((c) => c.col === 5)?.value,
+    'メーカーA　タイルカーペット　500×500 mm　防炎'
+  )
+  assert.equal(doc.body.lines[0].quantity, '12.3')
+  assert.equal(doc.body.lines[0].unitPrice, 1500)
 })

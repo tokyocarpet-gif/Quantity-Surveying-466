@@ -1,3 +1,4 @@
+import { wallPrintHtml } from './wall-layout-print'
 import { summaryXlsxName } from './summary-xlsx'
 import { layoutPrintHtml, layoutPdfName } from './layout-print'
 import { summaryPrintHtml, summaryPdfName } from './summary-print'
@@ -70,6 +71,29 @@ function registerIpc(): void {
       }
     })
   }
+  handle('wall:read', (raw) => storage.readWalls(raw))
+  handle('wall:save', (raw) => storage.saveWall(raw))
+  handle('wall:delete', (raw) => storage.deleteWall(raw))
+  handle('wall:pdf-preview', async (raw) => {
+    const report = storage.wallReport(raw)
+    pdfPreview = null
+    const bytes = await renderReportPdf(wallPrintHtml(report), {
+      footer: '壁材割り付け',
+      landscape: true
+    })
+    pdfPreview = { token: randomUUID(), bytes, name: '壁材割り付け.pdf' }
+    return { token: pdfPreview.token, bytes }
+  })
+  handle('wall:pdf-batch-preview', async (raw) => {
+    const reports = storage.wallBatchReport(raw)
+    pdfPreview = null
+    const bytes = await renderReportPdf(wallPrintHtml(reports), {
+      footer: '壁材割り付け・選択面一覧',
+      landscape: true
+    })
+    pdfPreview = { token: randomUUID(), bytes, name: '壁材割り付け・選択面.pdf' }
+    return { token: pdfPreview.token, bytes }
+  })
   handle('layout:pdf-preview', async (raw) => {
     const report = storage.layoutReport(raw)
     pdfPreview = null
@@ -99,15 +123,20 @@ function registerIpc(): void {
   })
   handle('estimate:pdf-preview', async (raw) => {
     const request = estimatePdfSchema.parse(raw)
-    const doc = storage.readEstimate(request)
+    const doc = storage.readEstimate({ id: request.id, revision: request.revision })
     pdfPreview = null
-    const bytes = await renderEstimatePdf(doc)
+    const bytes = await renderEstimatePdf(doc, request.output)
     pdfPreview = { token: randomUUID(), bytes, name: estimatePdfName(doc) }
     return { token: pdfPreview.token, bytes }
   })
+  handle('estimate:print', async (raw) => {
+    const request = estimatePdfSchema.parse(raw)
+    const doc = storage.readEstimate({ id: request.id, revision: request.revision })
+    await renderEstimatePdf(doc, request.output, true)
+  })
   handle('estimate:xlsx-save', async (raw) => {
     const request = estimatePdfSchema.parse(raw)
-    const doc = storage.readEstimate(request)
+    const doc = storage.readEstimate({ id: request.id, revision: request.revision })
     const bytes = renderEstimateXlsx(doc)
     const selected = await dialog.showSaveDialog(window!, {
       title: 'Excel帳票を保存',
@@ -136,6 +165,7 @@ function registerIpc(): void {
   handle('company:read', () => storage.readCompany())
   handle('company:save', (input) => storage.saveCompany(input))
   handle('catalog:add-option', (input) => storage.addCatalogOption(input))
+  handle('catalog:rename-option', (input) => storage.renameCatalogOption(input))
   handle('estimate:create', (input) => storage.createEstimate(input))
   handle('estimate:read', (input) => storage.readEstimate(input))
   handle('estimate:list', (input) => storage.listEstimates(input))

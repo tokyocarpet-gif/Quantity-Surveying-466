@@ -1,7 +1,8 @@
+import type { WallAddress, WallDoc, WallSave, WallBatchPdfRequest } from './wall-layout'
 import type { LayoutPdfRequest } from './layout-pdf'
 import type { LayoutDoc, LayoutSave } from './layout'
 import type { PdfPreview } from './pdf'
-import type { Company, AddCatalogOption } from './business'
+import type { Company, AddCatalogOption, RenameCatalogOption } from './business'
 import type {
   EstimatePdfRequest,
   EstimateDoc,
@@ -67,17 +68,24 @@ export interface ImportResult {
 }
 export type Result<T> = { ok: true; data: T } | { ok: false; error: string }
 export interface AppApi {
+  readWalls(input: WallAddress): Promise<Result<WallDoc[]>>
+  saveWall(input: WallSave): Promise<Result<WallDoc>>
+  deleteWall(input: { id: string; expectedRevision: number }): Promise<Result<void>>
+  previewWallPdf(input: WallSave): Promise<Result<PdfPreview>>
+  previewWallBatchPdf(input: WallBatchPdfRequest): Promise<Result<PdfPreview>>
   readLayout(roomId: string): Promise<Result<LayoutDoc | null>>
   saveLayout(input: LayoutSave): Promise<Result<LayoutDoc>>
   previewLayoutPdf(input: LayoutPdfRequest): Promise<Result<PdfPreview>>
   previewSummaryPdf(input: SummaryExport): Promise<Result<PdfPreview>>
   previewEstimatePdf(input: EstimatePdfRequest): Promise<Result<PdfPreview>>
+  printEstimate(input: EstimatePdfRequest): Promise<Result<void>>
   saveEstimateXlsx(input: EstimatePdfRequest): Promise<Result<string | null>>
   savePdfPreview(token: string): Promise<Result<string | null>>
   closePdfPreview(token: string): Promise<Result<void>>
   readCompany(): Promise<Result<Company>>
   saveCompany(input: Company): Promise<Result<Company>>
   addCatalogOption(input: AddCatalogOption): Promise<Result<void>>
+  renameCatalogOption(input: RenameCatalogOption): Promise<Result<void>>
   createEstimate(input: SummaryExport): Promise<Result<EstimateDoc>>
   readEstimate(input: EstimateRead): Promise<Result<EstimateDoc>>
   saveEstimate(input: EstimateSave): Promise<Result<EstimateDoc>>

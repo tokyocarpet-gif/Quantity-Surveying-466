@@ -29,6 +29,7 @@ export function TakeoffDialog({
   return (
     <dialog
       className="modal takeoff-dialog"
+      aria-label={title}
       ref={ref}
       onCancel={(e) => {
         e.preventDefault()

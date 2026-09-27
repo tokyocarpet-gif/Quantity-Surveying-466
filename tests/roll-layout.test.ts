@@ -133,7 +133,7 @@ test('v10の材料はタイルとして退避・移行し、既存寸法を保�
   const db = new Database(join(root, 'data/db/sekisan-kanri.db'))
   initializeSchema(db, 0)
   db.exec(
-    'ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; PRAGMA user_version=10;'
+    'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType; ALTER TABLE materials DROP COLUMN layoutType; PRAGMA user_version=10;'
   )
   const before = db.prepare('SELECT * FROM materials ORDER BY id').all()
   db.close()
@@ -146,13 +146,13 @@ test('v10の材料はタイルとして退避・移行し、既存寸法を保�
         .prepare('SELECT * FROM materials ORDER BY id')
         .all()
         .map((r: any) => {
-          const { layoutType, ...old } = r
+          const { layoutType, wallpaper, ...old } = r
           return old
         }),
       before
     )
     compare.close()
-    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v16-')))
+    assert.ok(readdirSync(join(root, 'recovery')).some((n) => n.startsWith('before-schema-v21-')))
   } finally {
     storage.close()
     rmSync(root, { recursive: true, force: true })
@@ -252,7 +252,9 @@ test('ロール材の取り込み・配置・バックアップ復元を保持�
     legacy
       .prepare('UPDATE room_layouts SET body=? WHERE roomId=?')
       .run(JSON.stringify(oldBody), roomId)
-    legacy.exec('ALTER TABLE rooms DROP COLUMN geometryType; PRAGMA user_version=11')
+    legacy.exec(
+      'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType; PRAGMA user_version=11'
+    )
     const rows = legacy.prepare('SELECT * FROM room_layouts ORDER BY roomId').all()
     legacy.close()
     const migrated = new Storage(join(root, 'app'))
@@ -261,11 +263,11 @@ test('ロール材の取り込み・配置・バックアップ復元を保持�
       assert.equal(migrated.readLayout(roomId)!.body.rollCutMode, 'width')
       assert.equal(migrated.readLayout(roomId)!.body.maxWidthMm, null)
       const check = new Database(join(root, 'app/data/db/sekisan-kanri.db'))
-      assert.equal(check.pragma('user_version', { simple: true }), 16)
+      assert.equal(check.pragma('user_version', { simple: true }), 21)
       assert.deepEqual(check.prepare('SELECT * FROM room_layouts ORDER BY roomId').all(), rows)
       check.close()
       assert.ok(
-        readdirSync(join(root, 'app/recovery')).some((n) => n.startsWith('before-schema-v16-'))
+        readdirSync(join(root, 'app/recovery')).some((n) => n.startsWith('before-schema-v21-'))
       )
     } finally {
       migrated.close()

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { companySchema, emptyCompany, type Company } from '../../shared/business'
 import { TakeoffDialog } from './takeoff/Dialogs'
+import { CompanyFields, advanceCompanyField } from './CompanyFields'
+import { CompanyBlock, companyBlockCss } from '../../shared/CompanyBlock'
 import { unwrap } from './store'
 export function CompanyDialog({ close }: { close: () => void }): React.JSX.Element {
   const [value, setValue] = useState<Company>(emptyCompany()),
@@ -23,16 +25,6 @@ export function CompanyDialog({ close }: { close: () => void }): React.JSX.Eleme
       cancelled = true
     }
   }, [])
-  const labels = {
-    name: '会社名',
-    postalCode: '郵便番号',
-    address: '住所',
-    phone: '電話番号',
-    fax: 'FAX',
-    email: 'メールアドレス',
-    contact: '担当者',
-    registrationNumber: '登録番号'
-  }
   const defaults = [
     {
       key: 'estimateValidity',
@@ -57,6 +49,7 @@ export function CompanyDialog({ close }: { close: () => void }): React.JSX.Eleme
     <TakeoffDialog title="自社情報" close={close} busy={busy}>
       <form
         className="summary-edit-form company-form"
+        onKeyDown={advanceCompanyField}
         onSubmit={async (e) => {
           e.preventDefault()
           setBusy(true)
@@ -75,20 +68,19 @@ export function CompanyDialog({ close }: { close: () => void }): React.JSX.Eleme
         <p className="panel-description">
           会社・連絡先と基本条件を、新しく作成する見積に引き継ぎます。見積ごとにも編集できます。
         </p>
-        {Object.entries(labels).map(([key, label]) => (
-          <label key={key}>
-            {label}
-            <input
-              aria-label={`自社の${label}`}
-              value={value[key as keyof Company]}
-              disabled={busy}
-              onChange={(e) => {
-                setValue({ ...value, [key]: e.target.value })
-                setNotice('')
-              }}
-            />
-          </label>
-        ))}
+        <CompanyFields
+          value={value}
+          busy={busy}
+          change={(identity) => {
+            setValue({ ...value, ...identity })
+            setNotice('')
+          }}
+        />
+        <div className="company-preview">
+          <h3>見積書での表示</h3>
+          <style>{companyBlockCss}</style>
+          <CompanyBlock company={value} />
+        </div>
         <div className="company-default-heading">
           <h3>見積の基本条件</h3>
           <p className="panel-description">
@@ -122,7 +114,7 @@ export function CompanyDialog({ close }: { close: () => void }): React.JSX.Eleme
           <button type="button" className="secondary" disabled={busy} onClick={close}>
             閉じる
           </button>
-          <button className="primary" disabled={busy}>
+          <button type="submit" className="primary" disabled={busy}>
             自社情報を保存
           </button>
         </div>

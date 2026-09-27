@@ -3,9 +3,10 @@ import {
   companySchema,
   emptyCompany,
   catalogOptionsSchema,
-  addCatalogOptionSchema
+  addCatalogOptionSchema,
+  renameCatalogOptionSchema,
+  builtinCatalogValues
 } from '../shared/business'
-import { categories, categoryLabels } from '../shared/takeoff'
 export const BUSINESS_SQL = `
 CREATE TABLE materials_v6 (id TEXT PRIMARY KEY, projectId TEXT REFERENCES projects(id) ON DELETE CASCADE, category TEXT NOT NULL, name TEXT NOT NULL, unitPrice REAL CHECK(unitPrice>=0), sourceId TEXT REFERENCES materials_v6(id) ON DELETE SET NULL, specification TEXT NOT NULL DEFAULT '', unit TEXT NOT NULL);
 INSERT INTO materials_v6(id,projectId,category,name,unitPrice,sourceId,unit) SELECT id,projectId,category,name,unitPrice,sourceId,CASE category WHEN 'baseboard' THEN 'm' ELSE '㎡' END FROM materials;
@@ -41,10 +42,7 @@ export function addCatalogOption(db: Database.Database, input: unknown): void {
   db.transaction(() => {
     const options = readCatalogOptions(db)
     const values = data.kind === 'part' ? options.parts : options.units
-    const builtins =
-      data.kind === 'part'
-        ? categories.flatMap((c) => [c, categoryLabels[c]])
-        : ['㎡', 'm', '式', '個']
+    const builtins = builtinCatalogValues(data.kind)
     if (!values.includes(data.name) && !builtins.includes(data.name)) values.push(data.name)
     save(db, 'catalog-options', catalogOptionsSchema.parse(options))
   })()
@@ -52,4 +50,30 @@ export function addCatalogOption(db: Database.Database, input: unknown): void {
 export function validateBusinessData(db: Database.Database): void {
   readCompany(db)
   readCatalogOptions(db)
+}
+
+export function renameCatalogOption(db: Database.Database, input: unknown): void {
+  const data = renameCatalogOptionSchema.parse(input)
+  db.transaction(() => {
+    const options = readCatalogOptions(db)
+    const key = data.kind === 'part' ? 'parts' : 'units'
+    const column = data.kind === 'part' ? 'category' : 'unit'
+    const values = options[key]
+    const builtins = builtinCatalogValues(data.kind)
+    if (builtins.includes(data.oldName))
+      throw new Error('基本項目は数量計算に使用するため変更できません。')
+    const exists = (name: string) =>
+      !!db.prepare(`SELECT 1 FROM materials WHERE ${column}=? LIMIT 1`).get(name)
+    if (!values.includes(data.oldName) && !exists(data.oldName))
+      throw new Error('変更元の項目が見つかりません。一覧を開き直してください。')
+    if (data.name === data.oldName) return
+    if (builtins.includes(data.name) || values.includes(data.name) || exists(data.name))
+      throw new Error('同じ名前の項目が既にあります。別の名前を入力してください。')
+    options[key] = values.includes(data.oldName)
+      ? values.map((v) => (v === data.oldName ? data.name : v))
+      : [...values, data.name]
+    save(db, 'catalog-options', catalogOptionsSchema.parse(options))
+    // Materials are editable masters. Takeoff and estimate snapshots retain their original labels.
+    db.prepare(`UPDATE materials SET ${column}=? WHERE ${column}=?`).run(data.name, data.oldName)
+  })()
 }

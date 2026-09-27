@@ -2,15 +2,22 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { AppApi } from '../shared/api'
 
 const api: AppApi = {
+  readWalls: (input) => ipcRenderer.invoke('wall:read', input),
+  saveWall: (input) => ipcRenderer.invoke('wall:save', input),
+  deleteWall: (input) => ipcRenderer.invoke('wall:delete', input),
+  previewWallPdf: (input) => ipcRenderer.invoke('wall:pdf-preview', input),
+  previewWallBatchPdf: (input) => ipcRenderer.invoke('wall:pdf-batch-preview', input),
   previewLayoutPdf: (input) => ipcRenderer.invoke('layout:pdf-preview', input),
   previewSummaryPdf: (input) => ipcRenderer.invoke('summary:pdf-preview', input),
   previewEstimatePdf: (input) => ipcRenderer.invoke('estimate:pdf-preview', input),
+  printEstimate: (input) => ipcRenderer.invoke('estimate:print', input),
   saveEstimateXlsx: (input) => ipcRenderer.invoke('estimate:xlsx-save', input),
   savePdfPreview: (token) => ipcRenderer.invoke('pdf:save', token),
   closePdfPreview: (token) => ipcRenderer.invoke('pdf:close', token),
   readCompany: () => ipcRenderer.invoke('company:read'),
   saveCompany: (input) => ipcRenderer.invoke('company:save', input),
   addCatalogOption: (input) => ipcRenderer.invoke('catalog:add-option', input),
+  renameCatalogOption: (input) => ipcRenderer.invoke('catalog:rename-option', input),
   createEstimate: (input) => ipcRenderer.invoke('estimate:create', input),
   readEstimate: (input) => ipcRenderer.invoke('estimate:read', input),
   saveEstimate: (input) => ipcRenderer.invoke('estimate:save', input),

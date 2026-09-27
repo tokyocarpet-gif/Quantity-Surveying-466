@@ -1,6 +1,6 @@
 import type { Storage } from './storage'
 import { escapeHtml as text } from './estimate-print'
-import { layoutTypeLabels, rollMaterialRows } from '../shared/layout'
+import { layoutTypeLabels, rollMaterialRows, tilePatternDescription } from '../shared/layout'
 import { dimensionLabel } from '../shared/roll-dimensions'
 type Report = ReturnType<Storage['layoutReport']>
 
@@ -47,7 +47,7 @@ export function layoutPrintHtml(report: Report): string {
         )
         .join('')}</tbody></table>
     <h2>シート別内訳</h2><table><thead><tr><th colspan="7" class="scope">${metadata} ／ シート別内訳</th></tr><tr><th>シート</th><th>実測W</th><th>実測L</th><th>使用W</th><th>使用L</th><th>使用面積（㎡）</th><th>確認</th></tr></thead><tbody>${roll.strips.map((s) => `<tr><td>${s.number}</td><td>${dimension(s.widthMm, 'W')}</td><td>${dimension(s.lengthMm)}</td><td>${dimension(s.cutWidthMm, 'W')}</td><td>${dimension(s.cutLengthMm)}</td><td>${area((s.cutWidthMm * s.cutLengthMm) / 1e6)}</td><td>${s.overLength ? '最大出荷L超過' : ''}</td></tr>`).join('')}</tbody></table>`
-    : `<h2>使用材料</h2><p>W ${dimension(body.widthMm, 'W')} × L ${dimension(body.heightMm!)} ／ 目地 ${body.gapMm} mm</p><p>${metrics}</p>`
+    : `<h2>使用材料</h2><p>貼り方：${text(tilePatternDescription(body))}</p><p>W ${dimension(body.widthMm, 'W')} × L ${dimension(body.heightMm!)} ／ 目地 ${body.gapMm} mm</p><p>${metrics}</p>`
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'"><title>割り付け図</title><style>
     @page {size:A4 landscape;} *{box-sizing:border-box;} body{margin:0;font-family:'Yu Gothic','Meiryo','Hiragino Kaku Gothic ProN',sans-serif;color:#233c30;font-size:9pt;line-height:1.4;}
     h1{font-size:18pt;margin:0 0 2mm;letter-spacing:.1em;} h2{font-size:11pt;margin:4mm 0 2mm;break-after:avoid;} p{margin:1mm 0;overflow-wrap:anywhere;} .metadata{font-size:10pt;white-space:pre-wrap;overflow-wrap:anywhere;} .source{font-size:8pt;color:#506858;}
@@ -62,7 +62,8 @@ export function layoutPrintHtml(report: Report): string {
     <section class="details"><h1>割り付け・使用材料内訳</h1><div class="metadata">${metadata}</div><p class="source">${source} ／ ${status}</p>
     <div class="conditions">材料：${text(body.materialName || '未設定')} ／ ${text(layoutTypeLabels[body.layoutType])}\n仕様・規格：${text(body.specification || '未設定')}
     ${roll ? `\n出荷方法：${roll.freeCut ? 'フリーカット' : '幅なり出荷'} ／ 最大出荷 W ${dimension(roll.maxWidthMm, 'W')} ／ L ${body.heightMm === null ? '未設定' : dimension(body.heightMm)}\n割付W ${dimension(body.widthMm, 'W')} ／ 切りしろ 両端各 ${body.trimMm} mm` : ''}
-    </div><p>配置：${body.mode === 'wall' ? `壁${body.wallIndex + 1}から壁寄せ` : '部屋中心基準'} ／ 回転 ${body.angle}° ／ 横移動 ${body.offsetX} mm ／ 縦移動 ${body.offsetY} mm</p>
+    </div><p>配置：${body.mode === 'wall' ? `壁${body.wallIndex + 1}${body.tilePattern === 'herringbone' && !roll ? 'を柄の基準にする' : 'から壁寄せ'}` : '部屋中心基準'} ／ 回転 ${body.angle}° ／ 横移動 ${body.offsetX} mm ／ 縦移動 ${body.offsetY} mm</p>
+    ${body.tilePattern === 'herringbone' && !roll ? '<p>柄の基準点は2枚を組み合わせる角です。0°では基準方向に対して材料を斜め45°に配置します。</p>' : ''}
     ${materials}<p class="metrics">${metrics}</p>
     <p class="note">${roll ? '規格のW・Lは最大出荷寸法です。最大L全量を購入する計算ではありません。使用Lには切りしろを含みます。フリーカットの使用Wは実測幅をmm単位で切り上げます。幅なり出荷は最大出荷Wで算定します。' : '使用元材は各切り物へ1枚ずつ使用する場合の枚数です。'}<br>端材の再利用・柄合わせ・幅方向の重ね代・穴の控除は含みません。表示は丸めていますが計算は元の精度を使用します。</p>
     <p class="note">${text(report.company)}</p></section></body></html>`

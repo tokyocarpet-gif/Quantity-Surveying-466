@@ -9,6 +9,14 @@ export const layoutTypeLabels = {
   sheet: '長尺シート',
   carpet: 'ロールカーペット'
 }
+export const tilePatternLabels = {
+  straight: '通し貼り（ずらしなし）',
+  half: '馬貼り（1/2ずらし）',
+  third: '1/3ずらし',
+  quarter: '1/4ずらし',
+  herringbone: 'ヘリンボーン（90°組み合わせ）'
+}
+const patternDivisions = { straight: 1, half: 2, third: 3, quarter: 4 }
 export const tileDimensions = {
   layoutType: layoutTypeSchema.default('tile'),
   tileWidthMm: z.number().finite().min(0.001).max(10000).nullable().default(null),
@@ -19,6 +27,10 @@ export const tileDimensions = {
 }
 export const layoutBodySchema = z
   .object({
+    tilePattern: z
+      .enum(['straight', 'half', 'third', 'quarter', 'herringbone'])
+      .default('straight'),
+    staggerAxis: z.enum(['width', 'length']).default('width'),
     customPolygon: polygonSchema
       .refine((points) => {
         try {
@@ -51,6 +63,14 @@ export const layoutBodySchema = z
   })
   .strict()
   .refine(
+    (b) =>
+      b.layoutType !== 'tile' ||
+      b.tilePattern !== 'herringbone' ||
+      b.heightMm === null ||
+      Math.abs(b.widthMm - b.heightMm) > 1e-7,
+    'ヘリンボーンは長方形の材料で配置します。幅と長さに異なる寸法を入力してください。'
+  )
+  .refine(
     (b) => b.layoutType === 'tile' || b.maxWidthMm === null || b.widthMm <= b.maxWidthMm,
     '割付Wは最大出荷W以下で入力してください。'
   )
@@ -79,6 +99,8 @@ export const layoutSaveSchema = z
   .strict()
 export type LayoutSave = z.infer<typeof layoutSaveSchema>
 export const defaultLayout = (): LayoutBody => ({
+  tilePattern: 'straight',
+  staggerAxis: 'width',
   customPolygon: null,
   rollCutMode: 'width',
   maxWidthMm: null,
@@ -99,6 +121,16 @@ export const defaultLayout = (): LayoutBody => ({
   offsetX: 0,
   offsetY: 0
 })
+export function tilePatternDescription(
+  body: Pick<LayoutBody, 'tilePattern' | 'staggerAxis'>
+): string {
+  return (
+    tilePatternLabels[body.tilePattern] +
+    (body.tilePattern === 'straight' || body.tilePattern === 'herringbone'
+      ? ''
+      : ` ／ ${body.staggerAxis === 'width' ? 'W（幅）' : 'L（長さ）'}方向へずらす`)
+  )
+}
 export const layoutSourceKey = (polygon: Point[], scale: number): string =>
   JSON.stringify({ polygon, scale })
 export function rollMaterialRows(
@@ -198,20 +230,52 @@ export function computeLayout(polygon: Point[], scale: number, raw: LayoutBody) 
   }
   const pageAnchor = toPage({ x: anchor.x + b.offsetX, y: anchor.y + b.offsetY })
   if (b.layoutType !== 'tile') return computeRoll(local, startX, b, toPage, angle, pageAnchor)
-  const left = Math.floor((minX - startX) / pitchX),
-    right = Math.ceil((maxX - startX) / pitchX)
-  const top = Math.floor((minY - startY) / pitchY),
-    bottom = Math.ceil((maxY - startY) / pitchY)
-  if ((right - left + 1) * (bottom - top + 1) > 20000)
+  if (b.tilePattern === 'herringbone')
+    return computeHerringbone(
+      local,
+      b,
+      { x: anchor.x + b.offsetX, y: anchor.y + b.offsetY },
+      toPage,
+      angle,
+      pageAnchor
+    )
+  const alongY = b.tilePattern !== 'straight' && b.staggerAxis === 'length'
+  const acrossStart = alongY ? startY : startX,
+    acrossPitch = alongY ? pitchY : pitchX,
+    acrossMin = alongY ? minY : minX,
+    acrossMax = alongY ? maxY : maxX,
+    rowStart = alongY ? startX : startY,
+    rowPitch = alongY ? pitchX : pitchY
+  const top = Math.floor(((alongY ? minX : minY) - rowStart) / rowPitch),
+    bottom = Math.ceil(((alongY ? maxX : maxY) - rowStart) / rowPitch)
+  const tooMany = (): never => {
     throw new Error('割り付けが2万枚を超えます。材料寸法・縮尺を確認するか、部屋を分けてください。')
+  }
+  if (bottom - top + 1 > 20000) tooMany()
+  const divisions = patternDivisions[b.tilePattern]
+  const rows: { r: number; start: number; left: number; right: number }[] = []
+  let candidates = 0
+  for (let r = top; r <= bottom; r++) {
+    // Include the joint in the repeat pitch. Positive modulo keeps rows on
+    // either side of the centre in the same 2/3/4-row repeating pattern.
+    const start =
+      acrossStart + ((((r % divisions) + divisions) % divisions) * acrossPitch) / divisions
+    const left = Math.floor((acrossMin - start) / acrossPitch),
+      right = Math.ceil((acrossMax - start) / acrossPitch)
+    candidates += right - left + 1
+    if (candidates > 20000) tooMany()
+    rows.push({ r, start, left, right })
+  }
   const tiles: { polygon: Point[]; full: boolean; areaMm2: number }[] = []
   let full = 0,
     cut = 0,
     laidArea = 0
-  for (let r = top; r <= bottom; r++)
+  for (const { r, start, left, right } of rows)
     for (let c = left; c <= right; c++) {
-      const x = startX + c * pitchX,
-        y = startY + r * pitchY
+      const across = start + c * acrossPitch,
+        row = rowStart + r * rowPitch
+      const x = alongY ? row : across,
+        y = alongY ? across : row
       const clipped = clipRect(local, x, y, b.widthMm, height)
       const amount = area(clipped),
         tileArea = b.widthMm * height
@@ -240,6 +304,100 @@ export function computeLayout(polygon: Point[], scale: number, raw: LayoutBody) 
     laidArea: laidArea / 1e6,
     angle,
     anchor: toPage({ x: anchor.x + b.offsetX, y: anchor.y + b.offsetY })
+  }
+}
+
+// Two perpendicular rectangles form a repeating herringbone motif. In material
+// coordinates its translations are (L+gap, -(L+gap)) and (W+gap, W+gap).
+// This tiles the plane for any rectangular aspect ratio, not just integer L/W.
+// Insetting each virtual rectangle by half the joint leaves an equal joint
+// between all neighbours, including the short ends. The pattern is rotated
+// 45 degrees relative to the user's axes; dragging/dimensions retain those axes.
+function computeHerringbone(
+  local: Point[],
+  b: LayoutBody,
+  origin: Point,
+  toPage: (p: Point) => Point,
+  angle: number,
+  anchor: Point
+) {
+  const short = Math.min(b.widthMm, b.heightMm!),
+    long = Math.max(b.widthMm, b.heightMm!)
+  const w = short + b.gapMm,
+    l = long + b.gapMm,
+    inset = b.gapMm / 2
+  const turn = Math.PI / 4
+  const room = local.map((p) => rotate({ x: p.x - origin.x, y: p.y - origin.y }, -turn))
+  const project = (p: Point): Point => {
+    const q = rotate(p, turn)
+    return toPage({ x: q.x + origin.x, y: q.y + origin.y })
+  }
+  const motif = [
+    { x: inset, y: -w + inset, width: long, height: short },
+    { x: inset, y: inset, width: short, height: long }
+  ]
+  const coefficients = (p: Point) => ({ x: (p.x - p.y) / (2 * l), y: (p.x + p.y) / (2 * w) })
+  const roomCoefficients = room.map(coefficients)
+  const motifCoefficients = motif.flatMap((t) =>
+    [
+      { x: t.x, y: t.y },
+      { x: t.x + t.width, y: t.y },
+      { x: t.x + t.width, y: t.y + t.height },
+      { x: t.x, y: t.y + t.height }
+    ].map(coefficients)
+  )
+  // Any intersecting tile has translation = room point - motif point.
+  // Bound that difference in lattice coordinates so no edge pieces are missed.
+  const left = Math.floor(
+    Math.min(...roomCoefficients.map((p) => p.x)) - Math.max(...motifCoefficients.map((p) => p.x))
+  )
+  const right = Math.ceil(
+    Math.max(...roomCoefficients.map((p) => p.x)) - Math.min(...motifCoefficients.map((p) => p.x))
+  )
+  const top = Math.floor(
+    Math.min(...roomCoefficients.map((p) => p.y)) - Math.max(...motifCoefficients.map((p) => p.y))
+  )
+  const bottom = Math.ceil(
+    Math.max(...roomCoefficients.map((p) => p.y)) - Math.min(...motifCoefficients.map((p) => p.y))
+  )
+  if ((right - left + 1) * (bottom - top + 1) * 2 > 20000)
+    throw new Error('割り付けが2万枚を超えます。材料寸法・縮尺を確認するか、部屋を分けてください。')
+  const tiles: { polygon: Point[]; full: boolean; areaMm2: number }[] = []
+  const tileArea = short * long
+  let full = 0,
+    cut = 0,
+    laidArea = 0
+  for (let i = left; i <= right; i++)
+    for (let j = top; j <= bottom; j++)
+      for (const t of motif) {
+        const x = i * l + j * w + t.x,
+          y = -i * l + j * w + t.y
+        const amount = area(clipRect(room, x, y, t.width, t.height))
+        if (amount < Math.max(0.001, tileArea * 1e-9)) continue
+        const whole = Math.abs(amount - tileArea) <= Math.max(0.01, tileArea * 1e-7)
+        if (whole) full++
+        else cut++
+        laidArea += amount
+        tiles.push({
+          polygon: [
+            { x, y },
+            { x: x + t.width, y },
+            { x: x + t.width, y: y + t.height },
+            { x, y: y + t.height }
+          ].map(project),
+          full: whole,
+          areaMm2: amount
+        })
+      }
+  return {
+    roll: null,
+    tiles,
+    full,
+    cut,
+    roomArea: area(local) / 1e6,
+    laidArea: laidArea / 1e6,
+    angle,
+    anchor
   }
 }
 

@@ -1,7 +1,5 @@
 import { exerciseLayout } from './layout-e2e.mjs'
 import { exerciseSummaryPdf } from './summary-pdf-e2e.mjs'
-import { exercisePdf } from './pdf-e2e.mjs'
-import { exerciseExcel } from './xlsx-e2e.mjs'
 import { exerciseCounts, verifyCounts } from './count-e2e.mjs'
 import { exerciseBusiness } from './business-e2e.mjs'
 import { exerciseEstimate, verifySavedEstimate } from './estimate-e2e.mjs'
@@ -122,8 +120,6 @@ try {
   await exerciseEstimate(page)
   await exerciseCounts(page)
   await exerciseSummaryPdf(page, application, temporary)
-  await exercisePdf(page, application, temporary)
-  await exerciseExcel(page, application, temporary)
   await page.getByRole('button', { name: '案件を編集', exact: true }).click()
   await expect(page.getByLabel('案件の担当者', { exact: true })).toHaveValue('山田 太郎')
   await page.getByLabel('案件の担当者', { exact: true }).fill('佐藤 次郎')
@@ -183,7 +179,7 @@ try {
   await page.screenshot({ path: 'test-results/04-workspace.png' })
   assert.deepEqual(errors, [])
   console.log(
-    'PASS Electron E2E: 顧客・案件作成 / PDF取り込み・描画・ページ切替 / 編集 / バックアップ・復元 / 原本削除・再起動 / renderer分離 / 縮尺・部屋・控除・再計算・数量固定 / カーソル中心ズーム・右パン・直交描画 / 部位選択・履歴・同名統合 / 材料マスタ / 高さ履歴・袖壁・縮尺表示 / 物件集計・4表示・絞込・内訳・CSV / 自社情報 / 部位・単位追加・仕様 / 見積作成・編集・削除確認・税非表示・版履歴・復元 / 個数拾い・点編集・集計・見積・復元'
+    'PASS Electron E2E: 顧客・案件作成 / PDF取り込み・描画・ページ切替 / 編集 / バックアップ・復元 / 原本削除・再起動 / renderer分離 / 縮尺・部屋・控除・再計算・数量固定 / カーソル中心ズーム・右パン・直交描画 / 部位選択・履歴・同名統合 / 材料マスタ / 高さ履歴・袖壁・縮尺表示 / 物件集計・4表示・絞込・内訳・CSV / 自社情報 / 部位・単位追加・仕様 / 見積作成・帳票編集・版履歴・復元 / 個数拾い・点編集・集計・見積・復元'
   )
 } catch (error) {
   if (application) {

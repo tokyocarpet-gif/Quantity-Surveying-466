@@ -1,3 +1,4 @@
+import type { WallSave, WallBatchPdfRequest } from '../../shared/wall-layout'
 import type { LayoutPdfRequest } from '../../shared/layout-pdf'
 import type { SummaryExport } from '../../shared/summary'
 import { useEffect, useRef, useState } from 'react'
@@ -77,6 +78,24 @@ export function LayoutPdfDialog({
 }): React.JSX.Element {
   return <ReportPdfDialog request={{ kind: 'layout', input: request }} close={close} />
 }
+export function WallPdfDialog({
+  request,
+  close
+}: {
+  request: WallSave
+  close: () => void
+}): React.JSX.Element {
+  return <ReportPdfDialog request={{ kind: 'wall', input: request }} close={close} />
+}
+export function WallBatchPdfDialog({
+  request,
+  close
+}: {
+  request: WallBatchPdfRequest
+  close: () => void
+}): React.JSX.Element {
+  return <ReportPdfDialog request={{ kind: 'wall-batch', input: request }} close={close} />
+}
 function ReportPdfDialog({
   request,
   close
@@ -85,16 +104,29 @@ function ReportPdfDialog({
     | { kind: 'estimate'; input: EstimatePdfRequest }
     | { kind: 'summary'; input: SummaryExport }
     | { kind: 'layout'; input: LayoutPdfRequest }
+    | { kind: 'wall'; input: WallSave }
+    | { kind: 'wall-batch'; input: WallBatchPdfRequest }
   close: () => void
 }): React.JSX.Element {
   const summary = request.kind === 'summary'
-  const label = request.kind === 'layout' ? '割り付けPDF' : summary ? '集計積算書PDF' : '見積PDF'
+  const label =
+    request.kind === 'wall' || request.kind === 'wall-batch'
+      ? '壁材割り付けPDF'
+      : request.kind === 'layout'
+        ? '割り付けPDF'
+        : summary
+          ? '集計積算書PDF'
+          : '見積PDF'
   const caption =
     request.kind === 'estimate'
-      ? `第${request.input.revision}版 · A4横・表紙＋内訳`
-      : request.kind === 'layout'
-        ? '選択した部屋の配置と使用材料 · A4横'
-        : '表示中の集計 · A4横'
+      ? `第${request.input.revision}版 · A4横・${[request.input.output?.cover !== false ? '表紙' : '', request.input.output?.detail !== false ? '内訳書' : ''].filter(Boolean).join('＋')}`
+      : request.kind === 'wall-batch'
+        ? `選択した壁 ${request.input.walls.length}面の数量一覧・展開図・使用材料 · A4横`
+        : request.kind === 'wall'
+          ? '壁1面の展開図と使用材料 · A4横'
+          : request.kind === 'layout'
+            ? '選択した部屋の配置と使用材料 · A4横'
+            : '表示中の集計 · A4横'
   const requestKey = JSON.stringify(request)
   const [pdf, setPdf] = useState<pdfjs.PDFDocumentProxy | null>(null)
   const [token, setToken] = useState(''),
@@ -119,9 +151,13 @@ function ReportPdfDialog({
     void unwrap(
       request.kind === 'estimate'
         ? window.sekisan.previewEstimatePdf(request.input)
-        : request.kind === 'layout'
-          ? window.sekisan.previewLayoutPdf(request.input)
-          : window.sekisan.previewSummaryPdf(request.input)
+        : request.kind === 'wall-batch'
+          ? window.sekisan.previewWallBatchPdf(request.input)
+          : request.kind === 'wall'
+            ? window.sekisan.previewWallPdf(request.input)
+            : request.kind === 'layout'
+              ? window.sekisan.previewLayoutPdf(request.input)
+              : window.sekisan.previewSummaryPdf(request.input)
     )
       .then(async (result) => {
         previewToken = result.token

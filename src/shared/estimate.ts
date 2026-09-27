@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { companyIdentitySchema } from './business'
 import { idSchema, nameSchema } from './validation'
 import { summaryExportSchema, displayQuantity, type SummaryReport } from './summary'
 export const roundingSchema = z.enum(['round', 'truncate', 'away'])
@@ -15,10 +16,14 @@ const quantitySchema = z
 export const estimateLineSchema = z
   .object({
     id: idSchema,
+    itemNo: z.string().trim().max(20).optional(),
     room: z.string().trim().max(120),
-    category: z.string().trim().min(1).max(120),
+    category: z.string().trim().max(120),
     name: z.string().trim().max(120),
     specification: z.string().trim().max(400).default(''),
+    specification2: z.string().trim().max(400).optional(),
+    specification3: z.string().trim().max(400).optional(),
+    manufacturer: z.string().trim().max(120).optional(),
     section: z.string().trim().max(120).default(''),
     note: z.string().trim().max(500).default(''),
     quantity: quantitySchema,
@@ -34,8 +39,59 @@ export const estimateBodySchema = z
     number: z.string().trim().max(80),
     date: z.iso.date(),
     recipient: z.string().trim().max(160),
-    issuer: z.string().trim().max(1000),
+    issuer: z.string().trim().max(1600),
+    issuerCompany: companyIdentitySchema.optional(),
     delivery: z.string().trim().max(200).default(''),
+    expiry: z.string().trim().max(200).optional(),
+    coverExtras: z
+      .array(estimateLineSchema)
+      .max(2000)
+      .refine(
+        (rows) => new Set(rows.map((r) => r.id)).size === rows.length,
+        '表紙の自由行IDが重複しています。'
+      )
+      .optional(),
+    expenses: z.number().finite().int().min(0).max(1e12).optional(),
+    taxDisplay: z.enum(['exclusive', 'inclusive']).optional(),
+    detailSheets: z
+      .array(
+        z
+          .object({
+            id: idSchema,
+            section: z.string().trim().max(120),
+            lineIds: z.array(idSchema).max(23, '内訳明細書は1枚23行までです。')
+          })
+          .strict()
+      )
+      .min(1)
+      .max(2000)
+      .optional(),
+    coverSummaries: z
+      .array(
+        z
+          .object({
+            sheetId: idSchema,
+            name: z.string().trim().max(120),
+            specification: z.string().trim().max(400),
+            note: z.string().trim().max(500)
+          })
+          .strict()
+      )
+      .max(2000)
+      .refine(
+        (rows) => new Set(rows.map((r) => r.sheetId)).size === rows.length,
+        '表紙の大項目が重複しています。'
+      )
+      .optional(),
+    presentation: z
+      .object({
+        mode: z.enum(['detail', 'cover']),
+        coverLineIds: z.array(idSchema).max(12),
+        outputCover: z.boolean(),
+        outputDetail: z.boolean()
+      })
+      .strict()
+      .optional(),
     conditions: z.string().trim().max(2000),
     memo: z.string().trim().max(4000),
     taxRate: z
@@ -59,6 +115,39 @@ export const estimateBodySchema = z
       )
   })
   .strict()
+  .superRefine((body, ctx) => {
+    if (body.detailSheets) {
+      const ids = body.detailSheets.flatMap((s) => s.lineIds)
+      const lineIds = new Set(body.lines.map((l) => l.id))
+      if (
+        new Set(body.detailSheets.map((s) => s.id)).size !== body.detailSheets.length ||
+        new Set(ids).size !== ids.length ||
+        ids.length !== lineIds.size ||
+        ids.some((id) => !lineIds.has(id))
+      )
+        ctx.addIssue({
+          code: 'custom',
+          message: '内訳明細書の明細割り当てが不正です。',
+          path: ['detailSheets']
+        })
+    }
+    const selected = body.presentation?.coverLineIds ?? []
+    if (
+      new Set(selected).size !== selected.length ||
+      selected.some((id) => !body.lines.some((l) => l.id === id))
+    )
+      ctx.addIssue({
+        code: 'custom',
+        message: '表紙の選択明細が不正です。',
+        path: ['presentation']
+      })
+    if (body.presentation?.mode === 'cover' && !selected.length)
+      ctx.addIssue({
+        code: 'custom',
+        message: '表紙に転記する明細を選択してください。',
+        path: ['presentation']
+      })
+  })
 export type EstimateBody = z.infer<typeof estimateBodySchema>
 export const estimateSourceSchema = z
   .object({
@@ -93,7 +182,15 @@ export const estimateSaveSchema = z
   .object({ id: idSchema, expectedRevision: z.number().int().positive(), body: estimateBodySchema })
   .strict()
 export const estimatePdfSchema = z
-  .object({ id: idSchema, revision: z.number().int().positive() })
+  .object({
+    id: idSchema,
+    revision: z.number().int().positive(),
+    output: z
+      .object({ cover: z.boolean(), detail: z.boolean() })
+      .strict()
+      .refine((v) => v.cover || v.detail, '出力する帳票を選択してください。')
+      .optional()
+  })
   .strict()
 export type EstimatePdfRequest = z.infer<typeof estimatePdfSchema>
 export type EstimateRead = z.infer<typeof estimateReadSchema>
@@ -141,14 +238,43 @@ export function roundMoney(n: bigint, d: bigint, mode: Rounding): bigint {
   const increment = mode === 'round' ? rem * 2n >= d : mode === 'away' ? rem !== 0n : false
   return sign * (abs / d + (increment ? 1n : 0n))
 }
+export const LEGACY_EXPENSE_ID = '00000000-0000-4000-8000-000000000001'
+export function coverExtraLinesFor(body: EstimateBody): EstimateLine[] {
+  return (
+    body.coverExtras ?? [
+      {
+        id: LEGACY_EXPENSE_ID,
+        itemNo: '',
+        room: '',
+        category: '',
+        section: '',
+        name: '諸経費',
+        specification: '',
+        note: '',
+        quantity: '1.0',
+        unit: '式',
+        unitPrice: body.expenses ?? 0
+      }
+    ]
+  )
+}
+export function estimateLineAmount(line: EstimateLine, rounding: Rounding): string | null {
+  if (line.unitPrice === null) return null
+  const [n, d] = decimal(line.unitPrice)
+  return String(roundMoney(BigInt(line.quantity.replace('.', '')) * n, d * 10n, rounding))
+}
 export function calculateEstimate(body: EstimateBody): EstimateTotals {
-  const amounts = body.lines.map((l) => {
-    if (l.unitPrice === null) return null
-    const [n, d] = decimal(l.unitPrice)
-    return String(roundMoney(BigInt(l.quantity.replace('.', '')) * n, d * 10n, body.amountRounding))
-  })
-  const known = amounts.reduce<bigint>((n, a) => n + (a === null ? 0n : BigInt(a)), 0n),
-    missingPrices = amounts.filter((a) => a === null).length
+  const amounts = body.lines.map((l) => estimateLineAmount(l, body.amountRounding))
+  const extraLines = coverExtraLinesFor(body)
+  const extraAmounts = extraLines.map((l) => estimateLineAmount(l, body.amountRounding))
+  const active = activeEstimateIndexes(body)
+  const known = active.reduce<bigint>(
+      (n, i) => n + (amounts[i] === null ? 0n : BigInt(amounts[i]!)),
+      extraAmounts.reduce<bigint>((sum, a) => sum + (a === null ? 0n : BigInt(a)), 0n)
+    ),
+    missingPrices =
+      active.filter((i) => amounts[i] === null).length +
+      extraAmounts.filter((a) => a === null).length
   const rate = Math.round(body.taxRate * 100),
     tax = roundMoney(known * BigInt(rate), 10000n, body.taxRounding)
   return {
@@ -158,16 +284,36 @@ export function calculateEstimate(body: EstimateBody): EstimateTotals {
     tax: missingPrices ? null : String(tax),
     total: missingPrices ? null : String(known + tax),
     missingPrices,
-    negativeLines: body.lines.filter((l) => Number(l.quantity) < 0).length
+    negativeLines:
+      active.filter((i) => Number(body.lines[i].quantity) < 0).length +
+      extraLines.filter((l) => Number(l.quantity) < 0).length
   }
+}
+export function estimatePresentation(body: EstimateBody) {
+  return (
+    body.presentation ?? {
+      mode: 'detail' as const,
+      coverLineIds: [],
+      outputCover: true,
+      outputDetail: true
+    }
+  )
+}
+export function activeEstimateIndexes(body: EstimateBody): number[] {
+  const presentation = estimatePresentation(body)
+  return body.lines.flatMap((line, index) =>
+    presentation.mode === 'detail' || presentation.coverLineIds.includes(line.id) ? [index] : []
+  )
 }
 export function estimateLinesFromSummary(report: SummaryReport, ids: string[]): EstimateLine[] {
   return report.rows.map((r, i) => ({
     id: ids[i],
+    itemNo: String(i + 1),
     room: r.roomLabel,
     category: r.category,
-    name: r.finish,
-    specification: r.specification ?? '',
+    name: r.roomLabel,
+    specification: r.finish,
+    specification2: r.specification ?? '',
     section: '',
     note: '',
     quantity: displayQuantity(r.quantity),
@@ -179,11 +325,13 @@ export function estimateLinesFromSummary(report: SummaryReport, ids: string[]): 
 /** Group already-rounded line amounts, keeping first appearance and each section's line order. */
 export function estimateSections(body: EstimateBody) {
   const totals = calculateEstimate(body)
+  const active = new Set(activeEstimateIndexes(body))
   const groups = new Map<
     string,
     { name: string; indexes: number[]; known: bigint; missing: boolean }
   >()
   body.lines.forEach((line, index) => {
+    if (!active.has(index)) return
     const name = line.section.trim() || '内装仕上工事'
     let group = groups.get(name)
     if (!group) {

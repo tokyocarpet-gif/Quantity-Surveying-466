@@ -77,5 +77,15 @@ export function validateLayouts(db: Database.Database): void {
     })
     if ((db.pragma('user_version', { simple: true }) as number) < 16 && parsed.body.customPolygon)
       throw new Error('割り付け専用範囲はDB v16以降で保存してください。')
+    if (
+      (db.pragma('user_version', { simple: true }) as number) < 17 &&
+      (parsed.body.tilePattern !== 'straight' || parsed.body.staggerAxis !== 'width')
+    )
+      throw new Error('ずらし貼りはDB v17以降で保存してください。')
+    if (
+      (db.pragma('user_version', { simple: true }) as number) < 18 &&
+      parsed.body.tilePattern === 'herringbone'
+    )
+      throw new Error('ヘリンボーンはDB v18以降で保存してください。')
   }
 }

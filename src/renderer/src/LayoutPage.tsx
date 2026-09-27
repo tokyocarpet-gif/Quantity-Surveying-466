@@ -1,3 +1,4 @@
+import { WallEditor } from './takeoff/WallEditor'
 import { useEffect, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { ArrowLeft } from 'lucide-react'
@@ -27,6 +28,7 @@ export function LayoutPage({
 }): React.JSX.Element {
   const [state, setState] = useState<PageState | null>(null),
     [error, setError] = useState('')
+  const [mode, setMode] = useState<'floor' | 'wall'>('floor')
   const [selectedId, setSelectedId] = useState(initialRoomId)
   const [zoom, setZoom] = useState(1)
   useEffect(() => {
@@ -36,7 +38,6 @@ export function LayoutPage({
     setZoom(1)
     void unwrap(window.sekisan.readTakeoff({ drawingId: drawing.id, pageNumber }))
       .then((result) => {
-        result = { ...result, rooms: result.rooms.filter((r) => r.geometryType !== 'wall-line') }
         if (active) {
           setState(result)
           setSelectedId(
@@ -54,7 +55,8 @@ export function LayoutPage({
     }
   }, [drawing.id, pageNumber, initialRoomId])
   const current = state?.pageNumber === pageNumber ? state : null
-  const room = current?.rooms.find((r) => r.id === selectedId)
+  const floorRooms = current?.rooms.filter((r) => r.geometryType !== 'wall-line') ?? []
+  const room = floorRooms.find((r) => r.id === selectedId) ?? floorRooms[0]
   const header = (leave: (action: () => void) => void, busy: boolean): React.JSX.Element => (
     <header className="layout-page-header">
       <button
@@ -66,8 +68,28 @@ export function LayoutPage({
         <ArrowLeft size={20} />
       </button>
       <div className="layout-page-title">
-        <span className="eyebrow">床材の割り付け</span>
+        <span className="eyebrow">{mode === 'wall' ? '壁材の割り付け' : '床材の割り付け'}</span>
         <h1>{drawing.name}</h1>
+      </div>
+      <div className="wall-actions">
+        <button
+          className={mode === 'floor' ? 'primary' : 'secondary'}
+          disabled={busy}
+          onClick={() => {
+            if (mode !== 'floor') leave(() => setMode('floor'))
+          }}
+        >
+          床材
+        </button>
+        <button
+          className={mode === 'wall' ? 'primary' : 'secondary'}
+          disabled={busy}
+          onClick={() => {
+            if (mode !== 'wall') leave(() => setMode('wall'))
+          }}
+        >
+          壁材
+        </button>
       </div>
       <label>
         ページ
@@ -95,26 +117,36 @@ export function LayoutPage({
         部屋
         <select
           aria-label="割り付けの部屋"
-          disabled={busy || !current?.rooms.length}
+          disabled={busy || !floorRooms.length}
           value={room?.id ?? ''}
           onChange={(e) => {
             const id = e.target.value
             leave(() => setSelectedId(id))
           }}
         >
-          {!current?.rooms.length && (
+          {!floorRooms.length && (
             <option value="">{current ? 'このページに部屋がありません' : '読み込み中…'}</option>
           )}
-          {current?.rooms.map((r, i) => (
+          {floorRooms.map((r, i) => (
             <option key={r.id} value={r.id}>
               {r.name}
-              {current.rooms.filter((n) => n.name === r.name).length > 1 ? `（範囲 ${i + 1}）` : ''}
+              {floorRooms.filter((n) => n.name === r.name).length > 1 ? `（範囲 ${i + 1}）` : ''}
             </option>
           ))}
         </select>
       </label>
     </div>
   )
+  if (mode === 'wall' && current)
+    return (
+      <WallEditor
+        key={`${drawing.id}:${pageNumber}`}
+        drawing={drawing}
+        pdf={pdf}
+        state={current}
+        navigation={header}
+      />
+    )
   if (room && current?.scaleRatio)
     return (
       <LayoutEditor
@@ -143,7 +175,7 @@ export function LayoutPage({
             ) : (
               <>
                 <h2>
-                  {current.rooms.length
+                  {floorRooms.length
                     ? '縮尺を設定してください'
                     : 'このページに拾い出した部屋がありません'}
                 </h2>

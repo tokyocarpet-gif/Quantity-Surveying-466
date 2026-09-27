@@ -1,3 +1,4 @@
+import { wallpaperSchema } from './wall-layout'
 import { dimensionLabel } from './roll-dimensions'
 import { tileDimensions } from './layout'
 import { z } from 'zod'
@@ -6,6 +7,7 @@ import { categoryUnits, categoryLabels, type Category } from './takeoff'
 export const materialInputSchema = z
   .object({
     ...tileDimensions,
+    wallpaper: wallpaperSchema.nullable().optional(),
     projectId: idSchema.nullable(),
     category: nameSchema,
     name: nameSchema,
