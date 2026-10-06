@@ -27,6 +27,7 @@ jobs:
       - run: node scripts/wall-line-e2e.mjs
       - run: node scripts/layout-boundary-e2e.mjs
       - run: node scripts/herringbone-e2e.mjs
+      - run: node scripts/large-layout-pdf-e2e.mjs
       - run: node scripts/wall-layout-e2e.mjs
       - run: node scripts/wall-panels-e2e.mjs
       - run: node scripts/estimate-modern-e2e.mjs

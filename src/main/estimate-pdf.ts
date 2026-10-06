@@ -1,9 +1,14 @@
 import { BrowserWindow, session } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { EstimateDoc } from '../shared/estimate'
 import { escapeHtml, estimatePrintHtml } from './estimate-print'
 import { estimatePaperOverflows } from '../shared/estimate-layout'
 
-/** A separate sandbox renders escaped, self-contained HTML without access to app IPC or files. */
+/** A separate sandbox renders escaped, self-contained HTML without app IPC or access to unrelated files. */
 export function renderEstimatePdf(
   doc: EstimateDoc,
   output?: { cover: boolean; detail: boolean },
@@ -21,13 +26,15 @@ export async function renderReportPdf(
   html: string,
   options: { footer: string; landscape: boolean; fixedPage?: boolean; printer?: boolean }
 ): Promise<Buffer> {
-  const printSession = session.fromPartition('estimate-print')
+  const printSession = session.fromPartition(`estimate-print-${randomUUID()}`)
+  let documentUrl = ''
+  let directory: string | undefined
   printSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   printSession.setPermissionCheckHandler(() => false)
   printSession.webRequest.onBeforeRequest((details, callback) =>
     callback({
       cancel:
-        !details.url.startsWith('data:text/html;') &&
+        !(details.url === documentUrl && details.resourceType === 'mainFrame') &&
         !details.url.startsWith('data:image/png;base64,')
     })
   )
@@ -46,9 +53,15 @@ export async function renderReportPdf(
   printWindow.webContents.on('will-navigate', (event) => event.preventDefault())
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    // Embedded drawing PNGs can exceed Chromium's navigation URL limit. Keep the
+    // self-contained document intact and navigate to a short, private file URL.
+    directory = await mkdtemp(join(tmpdir(), 'sekisan-report-'))
+    const documentPath = join(directory, 'report.html')
+    await writeFile(documentPath, html, { encoding: 'utf8', mode: 0o600 })
+    documentUrl = pathToFileURL(documentPath).href
     return await Promise.race([
       (async () => {
-        await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+        await printWindow.loadFile(documentPath)
         if (options.fixedPage) {
           const overflow = await printWindow.webContents.executeJavaScriptInIsolatedWorld(999, [
             {
@@ -106,5 +119,8 @@ export async function renderReportPdf(
   } finally {
     clearTimeout(timer)
     printWindow.destroy()
+    printSession.webRequest.onBeforeRequest(null)
+    if (directory)
+      await rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
   }
 }
