@@ -29,6 +29,7 @@ try {
   }, fixture.id)
   await expect(page.locator('.estimate-page')).toHaveAttribute('aria-busy', 'false')
   await page.getByRole('button', { name: '表紙', exact: true }).click()
+  await page.getByRole('button', { name: 'セル編集に切り替え', exact: true }).click()
   const before = await page.evaluate(
     async (id) => (await window.sekisan.readEstimate({ id })).data,
     fixture.id

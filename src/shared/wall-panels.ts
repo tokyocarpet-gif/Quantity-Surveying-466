@@ -20,8 +20,8 @@ export const wallPanelSchema = z
 export type WallPanel = z.infer<typeof wallPanelSchema>
 export const wallKinds = {
   wallpaper: 'クロス',
-  tile: '壁タイル',
-  protection: 'プラベニア・板材養生'
+  tile: 'タイル',
+  protection: '板材'
 }
 export const panelPatterns = {
   straight: '通し貼り',

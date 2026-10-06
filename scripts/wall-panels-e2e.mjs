@@ -92,16 +92,17 @@ try {
   await expect(page.locator('.layout-screen')).toHaveAttribute('aria-busy', 'false')
   const materialIds = await page.evaluate(async () => {
     const w = (await window.sekisan.workspace()).data,
-      ids = [crypto.randomUUID(), crypto.randomUUID()]
+      ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()]
     for (const [i, name, width, height] of [
       [0, '壁用タイル', 400, 300],
-      [1, 'プラベニア', 910, 1820]
+      [1, 'プラベニア', 910, 1820],
+      [2, '共通限定タイル', 400, 300]
     ]) {
       const r = await window.sekisan.changeMaterials({
         kind: 'save',
         id: ids[i],
         input: {
-          projectId: w.projects[0].id,
+          projectId: i === 2 ? null : w.projects[0].id,
           category: 'wall',
           name,
           unitPrice: null,
@@ -119,7 +120,16 @@ try {
   await page.getByRole('button', { name: '壁材', exact: true }).click()
   await expect(page.locator('.wall-screen')).toHaveAttribute('aria-busy', 'false')
   await page.getByTestId('wall-edge-0').click({ force: true })
+  await expect(page.getByLabel('壁材の貼り始め')).toHaveValue('right')
+  await page.getByLabel('壁材の貼り始め').selectOption('left')
   await page.getByLabel('壁材の種類').selectOption('tile')
+  await expect(page.getByLabel('壁材の種類').locator('option')).toHaveText([
+    'クロス',
+    'タイル',
+    '板材'
+  ])
+  await expect(page.getByLabel('壁の板材・タイル材料').locator('option')).toHaveCount(3)
+  await expect(page.getByLabel('壁の板材・タイル材料')).not.toContainText('共通限定タイル')
   await expect(page.getByLabel('材料のW（mm）', { exact: true })).toHaveValue('')
   await expect(page.getByLabel('材料のL（mm）', { exact: true })).toHaveValue('')
   await expect(page.getByRole('button', { name: '壁の割り付けを保存', exact: true })).toBeDisabled()
@@ -201,14 +211,16 @@ try {
     await page.screenshot({ path: 'test-results/wall-panel-pdf.png' })
     await page.getByRole('button', { name: '閉じる', exact: true }).click()
   }
-  await exportPdf(/壁タイル割り付け/, join(temporary, 'wall-tile.pdf'))
+  await exportPdf(/タイル割り付け/, join(temporary, 'wall-tile.pdf'))
   // A separate wall uses the same source edge for protective boards.
   await page.getByTestId('wall-edge-0').click({ force: true })
   await page.getByLabel('壁材の種類').selectOption('protection')
   await expect(page.getByLabel('壁タイルの貼り方')).toHaveCount(0)
   await page.getByLabel('壁の板材・タイル材料').selectOption(materialIds[1])
   await page.getByLabel('壁材の割り付け基準').selectOption('edge')
-  await page.getByLabel('養生高さ（mm・空欄は壁上端まで）').fill('900')
+  await page.getByLabel('施工範囲の高さ（mm・空欄は壁上端まで）').fill('900')
+  await page.getByLabel('施工範囲の高さ（mm・空欄は壁上端まで）').press('Tab')
+  await expect(page.locator('#wall-range-coverageHeightMm option[value="900"]')).toHaveCount(1)
   await expect(totals).toContainText('3.6㎡')
   await expect(totals).toContainText('5枚')
   await expect(side).toHaveValue('right')
@@ -241,6 +253,21 @@ try {
   assert.equal(docs.length, 2)
   assert.equal(docs[1].body.kind, 'protection')
   assert.equal(docs[1].body.panel.coverageHeightMm, 900)
+  // The list survives leaving the wall screen and distinguishes starting height from coverage.
+  await page.getByRole('button', { name: '床材', exact: true }).click()
+  await page.getByRole('button', { name: '壁材', exact: true }).click()
+  await expect(page.locator('.wall-screen')).toHaveAttribute('aria-busy', 'false')
+  await page.getByLabel('保存した壁').selectOption(docs[1].id)
+  await expect(page.locator('#wall-range-coverageHeightMm option[value="900"]')).toHaveCount(1)
+  const range = page.getByLabel('施工範囲の高さ（mm・空欄は壁上端まで）')
+  await range.fill('')
+  await range.press('Tab')
+  await expect(page.locator('#wall-range-coverageHeightMm option[value="0"]')).toHaveCount(0)
+  await range.fill('900')
+  await range.press('Tab')
+  await expect(page.locator('#wall-range-coverageHeightMm option[value="900"]')).toHaveCount(1)
+  await expect(page.getByLabel('壁材の貼り始め')).toHaveValue('right')
+
   await page.locator('.wall-details').evaluate((e) => (e.scrollTop = 0))
   await page.screenshot({ path: 'test-results/wall-protection.png' })
   await exportPdf(/プラベニア/, join(temporary, 'wall-protection.pdf'))
@@ -308,8 +335,8 @@ try {
   assert.match(batchPages[0], /プラベニア/)
   assert.match(batchPages[0], /まとめクロス/)
   assert.doesNotMatch(batchPages.join(''), /出力しない面|除外材料/)
-  const tilePage = batchPages.findIndex((p) => p.includes('壁タイル割り付け'))
-  const boardPage = batchPages.findIndex((p) => p.includes('プラベニア・板材養生割り付け'))
+  const tilePage = batchPages.findIndex((p) => p.includes('タイル割り付け'))
+  const boardPage = batchPages.findIndex((p) => p.includes('板材割り付け'))
   const paperPage = batchPages.findIndex((p) => p.includes('壁クロス割り付け'))
   assert.ok(tilePage > 0 && boardPage > tilePage && paperPage > boardPage)
   for (let i = tilePage + 1; i < boardPage; i++)

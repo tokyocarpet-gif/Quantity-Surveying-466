@@ -1,3 +1,4 @@
+import { useWallRangeHistory } from './useWallRangeHistory'
 import type { Material } from '../../../shared/materials'
 import {
   defaultWallPanel,
@@ -9,14 +10,17 @@ import type { WallBody } from '../../../shared/wall-layout'
 export function WallPanelFields({
   body,
   materials,
+  historyPanels,
   edit,
   openMaster
 }: {
   body: WallBody
   materials: Material[]
+  historyPanels: WallPanel[]
   edit: (b: WallBody) => void
   openMaster: () => void
 }) {
+  const history = useWallRangeHistory(historyPanels)
   const p = body.panel ?? defaultWallPanel()
   const change = (next: Partial<WallPanel>) => edit({ ...body, panel: { ...p, ...next } })
   const field = (
@@ -35,6 +39,11 @@ export function WallPanelFields({
     <label>
       {label}
       <input
+        list={key === 'bottomMm' || key === 'coverageHeightMm' ? `wall-range-${key}` : undefined}
+        onBlur={(e) => {
+          if (key === 'bottomMm' || key === 'coverageHeightMm')
+            history.remember(key, e.target.value)
+        }}
         type="number"
         step="any"
         min={key.startsWith('offset') ? -100000 : 0}
@@ -49,7 +58,7 @@ export function WallPanelFields({
   return (
     <>
       <label>
-        マスタから選ぶ
+        物件マスタから選ぶ
         <select
           aria-label="壁の板材・タイル材料"
           value=""
@@ -73,7 +82,7 @@ export function WallPanelFields({
             .filter((m) => m.layoutType === 'tile' && !m.wallpaper)
             .map((m) => (
               <option key={m.id} value={m.id}>
-                {m.projectId ? '物件' : '共通'}：{m.name}
+                {m.name}
                 {m.tileWidthMm && m.tileHeightMm
                   ? `（${m.tileWidthMm}×${m.tileHeightMm}mm）`
                   : '（規格未設定）'}
@@ -117,15 +126,19 @@ export function WallPanelFields({
           {field('gapMm', '壁タイルの目地幅（mm）')}
         </>
       )}
-      <h3>{body.kind === 'protection' ? '養生する範囲' : '施工する範囲'}</h3>
+      <h3>施工範囲</h3>
       {field('bottomMm', '施工範囲の床からの高さ（mm）')}
-      {field(
-        'coverageHeightMm',
-        body.kind === 'protection'
-          ? '養生高さ（mm・空欄は壁上端まで）'
-          : '施工高さ（mm・空欄は壁上端まで）',
-        true
-      )}
+      {field('coverageHeightMm', '施工範囲の高さ（mm・空欄は壁上端まで）', true)}
+      {(['bottomMm', 'coverageHeightMm'] as const).map((key) => (
+        <datalist key={key} id={`wall-range-${key}`}>
+          {history.values[key].map((value) => (
+            <option key={value} value={value} />
+          ))}
+        </datalist>
+      ))}
+      <p className="panel-description">
+        入力した数値は履歴から選択できます。空欄の高さは壁上端までです。
+      </p>
       <h3>割り付けの基準・微調整</h3>
       <label>
         基準

@@ -1076,3 +1076,10 @@
   color: var(--text-muted);
   white-space: nowrap;
 }
+
+/* Editable empty cover cells must fit the same fixed row height as printed rows. */
+.estimate-paper[data-sheet-kind='cover'] .paper-add-cell {
+  display: flex;
+  height: 6mm;
+  min-height: 0;
+}

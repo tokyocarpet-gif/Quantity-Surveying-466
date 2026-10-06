@@ -9,32 +9,16 @@
   overflow: hidden;
   background: white;
 }
-.layout-page-header {
+.layout-page-header label {
   display: flex;
   align-items: center;
-  gap: 20px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-.layout-page-title {
-  flex: 1;
-  min-width: 0;
-}
-.layout-page-title h1 {
-  font-size: 19px;
-  margin: 5px 0 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.layout-page-header label {
-  display: grid;
-  gap: 5px;
+  gap: 8px;
   font-size: 12px;
   color: #506c5c;
 }
 .layout-page-header select {
+  height: 40px;
+  padding: 8px 12px;
   max-width: 320px;
   min-width: 140px;
   font-size: 13px;
@@ -70,10 +54,6 @@
   font-size: 12px;
 }
 @media (max-width: 900px) {
-  .layout-page-header {
-    gap: 10px;
-    padding: 12px;
-  }
   .layout-page-header select {
     max-width: 180px;
     min-width: 100px;

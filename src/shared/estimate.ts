@@ -141,7 +141,7 @@ export const estimateBodySchema = z
         message: '表紙の選択明細が不正です。',
         path: ['presentation']
       })
-    if (body.presentation?.mode === 'cover' && !selected.length)
+    if (body.presentation?.mode === 'cover' && !selected.length && !body.coverExtras)
       ctx.addIssue({
         code: 'custom',
         message: '表紙に転記する明細を選択してください。',

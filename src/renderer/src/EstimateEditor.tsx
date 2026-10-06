@@ -231,8 +231,14 @@ export function EstimateEditor(): React.JSX.Element {
   const [coverDraft, setCoverDraft] = useState<{ row: CoverSummary; initialKey: string } | null>(
     null
   )
+  const [extraDraft, setExtraDraft] = useState<{
+    line: EstimateLine
+    isNew: boolean
+    initialKey: string
+    blanks: number
+  } | null>(null)
   const [detailCellEditing, setDetailCellEditing] = useState(false)
-  const [coverCellEditing, setCoverCellEditing] = useState(true)
+  const [coverCellEditing, setCoverCellEditing] = useState(false)
   const cellEditing = kind === 'cover' ? coverCellEditing : detailCellEditing
   const setCellEditing = kind === 'cover' ? setCoverCellEditing : setDetailCellEditing
   const [rowDraft, setRowDraft] = useState<{
@@ -302,14 +308,14 @@ export function EstimateEditor(): React.JSX.Element {
     locked = busy || historical
   useEffect(() => {
     const leave = (e: BeforeUnloadEvent) => {
-      if (dirty || rowDraft) {
+      if (dirty || rowDraft || coverDraft || extraDraft) {
         e.preventDefault()
         e.returnValue = ''
       }
     }
     window.addEventListener('beforeunload', leave)
     return () => window.removeEventListener('beforeunload', leave)
-  }, [dirty, rowDraft])
+  }, [dirty, rowDraft, coverDraft, extraDraft])
   const sheets = body ? estimateSheets(body) : [],
     visible = sheets.filter((s) => s.kind === kind),
     sheet = visible[Math.min(page, Math.max(0, visible.length - 1))]
@@ -642,13 +648,26 @@ export function EstimateEditor(): React.JSX.Element {
     const owner = body.detailSheets!.find((s) => s.lineIds.includes(line.id))!
     setRowDraft({ line, isNew: false, sheetId: owner.id, initialKey: key })
   }
-  const addCoverExtra = (key = 'name') => {
+  const addCoverExtra = (key = 'name', blanks = 0) => {
     if (locked) return
     const b = current.current!,
       extras = coverExtraLinesFor(b)
     if (extras.length >= 2000) return
     const line = { ...blankEstimateLine(crypto.randomUUID()), unitPrice: 0 }
-    const next = estimateBodySchema.parse({ ...b, expenses: 0, coverExtras: [...extras, line] })
+    if (!cellEditing) {
+      setExtraDraft({ line, isNew: true, initialKey: key, blanks })
+      return
+    }
+    const empty = Array.from({ length: blanks }, () => ({
+      ...blankEstimateLine(crypto.randomUUID()),
+      quantity: '0.0',
+      unitPrice: 0
+    }))
+    const next = estimateBodySchema.parse({
+      ...b,
+      expenses: 0,
+      coverExtras: [...extras, ...empty, line]
+    })
     change(next)
     pendingFocus.current = { scope: `extra:${line.id}`, key }
     setPage(
@@ -753,7 +772,7 @@ export function EstimateEditor(): React.JSX.Element {
 
   const exportDisabled = busy || dirty || (!output.cover && !output.detail)
   const keys = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing || rowDraft || coverDraft) return
+    if (e.nativeEvent.isComposing || rowDraft || coverDraft || extraDraft) return
     if (
       (e.ctrlKey || e.metaKey) &&
       e.key.toLowerCase() === 'z' &&
@@ -895,7 +914,7 @@ export function EstimateEditor(): React.JSX.Element {
               className="estimate-text-action"
               disabled={locked}
               onClick={() => {
-                presentation({ mode: 'detail' })
+                presentation({ mode: 'detail', outputDetail: true })
                 setKind('detail')
                 setPage(0)
               }}
@@ -927,6 +946,31 @@ export function EstimateEditor(): React.JSX.Element {
           >
             {cellEditing ? '行をまとめて編集' : 'セル編集に切り替え'}
           </button>
+          {kind === 'cover' && p.mode === 'detail' && (
+            <button
+              className="estimate-text-action"
+              title="内訳の集計行を表示せず、表紙の入力行だけで作成します。元の内訳は保持します。"
+              disabled={locked}
+              onClick={() => {
+                update({
+                  coverExtras: coverExtraLinesFor(body),
+                  expenses: 0,
+                  presentation: {
+                    ...p,
+                    mode: 'cover',
+                    coverLineIds: [],
+                    outputCover: true,
+                    outputDetail: false
+                  }
+                })
+                setPage(0)
+                setTransfer(false)
+                setCoverCellEditing(false)
+              }}
+            >
+              表紙だけで入力
+            </button>
+          )}
           {kind === 'cover' && (
             <button
               className="estimate-text-action"
@@ -986,6 +1030,11 @@ export function EstimateEditor(): React.JSX.Element {
             設定
           </button>
         </div>
+        {kind === 'cover' && p.mode === 'cover' && !p.coverLineIds.length && (
+          <p className="estimate-inline-notice">
+            表紙のみ：行をクリックして品名・仕様・数量・単位・単価・備考を入力できます。合計は表紙の行だけで計算します。
+          </p>
+        )}
         {kind === 'cover' && p.mode === 'detail' && (
           <p className="estimate-inline-notice">
             {cellEditing
@@ -1044,6 +1093,12 @@ export function EstimateEditor(): React.JSX.Element {
                   pageNumber={sheets.indexOf(sheet) + 1}
                   selectedId={selected}
                   addCoverExtra={!locked && kind === 'cover' ? addCoverExtra : undefined}
+                  editCoverExtra={
+                    !locked && !cellEditing
+                      ? (line) =>
+                          setExtraDraft({ line, isNew: false, initialKey: 'name', blanks: 0 })
+                      : undefined
+                  }
                   deleteCoverExtra={!locked ? (id) => setDeleteId(`extra:${id}`) : undefined}
                   editCoverRow={
                     !locked && !cellEditing
@@ -1054,10 +1109,7 @@ export function EstimateEditor(): React.JSX.Element {
                     !locked && !transfer && !cellEditing ? (line) => openRow(line) : undefined
                   }
                   addRow={
-                    !locked &&
-                    !transfer &&
-                    ((kind === 'detail' && sheet.indexes.length < 23) ||
-                      (p.mode === 'cover' && p.coverLineIds.length < 12))
+                    !locked && !transfer && kind === 'detail' && sheet.indexes.length < 23
                       ? add
                       : undefined
                   }
@@ -1076,20 +1128,33 @@ export function EstimateEditor(): React.JSX.Element {
                       editRow={
                         data.scope === 'body' && data.key === 'issuer' && structuredIssuer(body)
                           ? () => setIssuerDraft(structuredIssuer(body)!)
-                          : !cellEditing && data.scope.startsWith('cover:')
+                          : !cellEditing && data.scope.startsWith('extra:')
                             ? (d) => {
-                                const row = coverSummariesFor(body).find(
-                                  (r) => r.sheetId === d.scope.slice(6)
+                                const line = coverExtraLinesFor(body).find(
+                                  (l) => l.id === d.scope.slice(6)
                                 )
-                                if (row) setCoverDraft({ row, initialKey: d.key })
+                                if (line)
+                                  setExtraDraft({
+                                    line,
+                                    isNew: false,
+                                    initialKey: d.key,
+                                    blanks: 0
+                                  })
                               }
-                            : !cellEditing && body.lines.some((l) => l.id === data.scope)
-                              ? (d) =>
-                                  openRow(
-                                    body.lines.find((l) => l.id === d.scope)!,
-                                    d.key
+                            : !cellEditing && data.scope.startsWith('cover:')
+                              ? (d) => {
+                                  const row = coverSummariesFor(body).find(
+                                    (r) => r.sheetId === d.scope.slice(6)
                                   )
-                              : undefined
+                                  if (row) setCoverDraft({ row, initialKey: d.key })
+                                }
+                              : !cellEditing && body.lines.some((l) => l.id === data.scope)
+                                ? (d) =>
+                                    openRow(
+                                      body.lines.find((l) => l.id === d.scope)!,
+                                      d.key
+                                    )
+                                : undefined
                       }
                       locked={locked}
                       commit={commit}
@@ -1139,7 +1204,10 @@ export function EstimateEditor(): React.JSX.Element {
                 !transfer &&
                 ((kind === 'detail' && (sheet?.indexes.length ?? 0) < 23) ||
                   (p.mode === 'cover' && p.coverLineIds.length < 12)) && (
-                  <button className="estimate-add-line" onClick={() => add()}>
+                  <button
+                    className="estimate-add-line"
+                    onClick={() => (kind === 'cover' ? addCoverExtra() : add())}
+                  >
                     明細を追加
                   </button>
                 )}
@@ -1324,7 +1392,9 @@ export function EstimateEditor(): React.JSX.Element {
               : !output.cover && !output.detail
                 ? '出力する帳票を選択してください'
                 : p.mode === 'cover'
-                  ? `表紙 ${p.coverLineIds.length}／12行`
+                  ? p.coverLineIds.length
+                    ? `表紙 ${p.coverLineIds.length}／12行`
+                    : '表紙のみ'
                   : `明細 ${body.lines.length}行`}
             　·　A4横　{Math.round(scale * 100)}%
           </span>
@@ -1401,6 +1471,65 @@ export function EstimateEditor(): React.JSX.Element {
                   .findIndex((s) => s.summaryIds?.includes(following.sheetId))
                 if (index >= 0) setPage(index)
               } else setCoverDraft(null)
+            } catch (e) {
+              return e instanceof Error ? e.message : '入力内容を確認してください。'
+            }
+          }}
+        />
+      )}
+      {extraDraft && (
+        <EstimateRowDialog
+          key={extraDraft.line.id}
+          cover
+          line={extraDraft.line}
+          body={body}
+          isNew={extraDraft.isNew}
+          initialKey={extraDraft.initialKey}
+          catalog={null}
+          canNext={coverExtraLinesFor(body).length + extraDraft.blanks < 2000}
+          close={() => setExtraDraft(null)}
+          remove={
+            extraDraft.isNew
+              ? undefined
+              : () => {
+                  setDeleteId(`extra:${extraDraft.line.id}`)
+                  setExtraDraft(null)
+                }
+          }
+          apply={(line, advance) => {
+            if (locked || !current.current) return '現在は編集できません。'
+            try {
+              const rows = coverExtraLinesFor(current.current)
+              const blanks = Array.from({ length: extraDraft.blanks }, () => ({
+                ...blankEstimateLine(crypto.randomUUID()),
+                quantity: '0.0',
+                unitPrice: 0
+              }))
+              const extras = extraDraft.isNew
+                ? [...rows, ...blanks, line]
+                : rows.map((r) => (r.id === line.id ? line : r))
+              const next = estimateBodySchema.parse({
+                ...current.current,
+                expenses: 0,
+                coverExtras: extras
+              })
+              change(next)
+              const following = extras[extras.findIndex((r) => r.id === line.id) + 1]
+              if (advance) {
+                setExtraDraft({
+                  line: following ?? { ...blankEstimateLine(crypto.randomUUID()), unitPrice: 0 },
+                  isNew: !following,
+                  initialKey: 'name',
+                  blanks: 0
+                })
+              } else setExtraDraft(null)
+              setPage(
+                estimateSheets(next)
+                  .filter((s) => s.kind === 'cover')
+                  .findIndex((s) =>
+                    s.extraIds?.includes(following && advance ? following.id : line.id)
+                  )
+              )
             } catch (e) {
               return e instanceof Error ? e.message : '入力内容を確認してください。'
             }

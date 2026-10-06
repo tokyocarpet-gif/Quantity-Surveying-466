@@ -1190,3 +1190,15 @@ small {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
+
+/* Keep drawing work headers aligned in both takeoff and layout views. */
+.drawing-work-header {
+  padding: 14px 22px;
+  min-height: 68px;
+  flex-shrink: 0;
+}
+@media (max-width: 1150px) {
+  .drawing-work-header {
+    padding: 10px 16px;
+  }
+}

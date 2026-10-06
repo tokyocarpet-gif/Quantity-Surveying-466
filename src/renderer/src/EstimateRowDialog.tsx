@@ -19,7 +19,8 @@ export function EstimateRowDialog({
   catalog,
   apply,
   close,
-  remove
+  remove,
+  cover = false
 }: {
   line: EstimateLine
   body: EstimateBody
@@ -30,6 +31,7 @@ export function EstimateRowDialog({
   apply: (line: EstimateLine, next: boolean) => string | void
   close: () => void
   remove?: () => void
+  cover?: boolean
 }): React.JSX.Element {
   const [draft, setDraft] = useState<Record<string, string>>(() =>
     Object.fromEntries(
@@ -74,7 +76,7 @@ export function EstimateRowDialog({
     <label key={key} className={`estimate-row-field-${key}`}>
       {label}
       <input
-        aria-label={`明細の${label}`}
+        aria-label={`${cover ? '表紙の行' : '明細'}の${label}`}
         data-row-key={key}
         autoFocus={key === initialKey}
         value={draft[key] ?? ''}
@@ -85,7 +87,7 @@ export function EstimateRowDialog({
           setError('')
         }}
         onBlur={() => {
-          if (key !== 'specification' || draft.specification === line.specification) return
+          if (cover || key !== 'specification' || draft.specification === line.specification) return
           const named = catalog?.project.filter((m) => m.name === draft.specification) ?? []
           const material =
             catalog?.project.find(
@@ -105,7 +107,12 @@ export function EstimateRowDialog({
     </label>
   )
   return (
-    <TakeoffDialog title={isNew ? '明細を追加' : '明細を編集'} close={close}>
+    <TakeoffDialog
+      title={
+        cover ? (isNew ? '表紙の行を追加' : '表紙の行を編集') : isNew ? '明細を追加' : '明細を編集'
+      }
+      close={close}
+    >
       <form
         className="estimate-row-form"
         ref={form}
@@ -127,17 +134,21 @@ export function EstimateRowDialog({
         }}
       >
         <p className="estimate-row-context">
-          {line.section || '工事名未入力'}
+          {cover ? '表紙' : line.section || '工事名未入力'}
           <span>必要な項目だけ変更できます。Tabで次の項目へ移動します。</span>
         </p>
         <div className="estimate-row-fields">
           {field('itemNo', '番号')}
           {field('name', '品名')}
-          {field('category', '部位', 'estimate-parts')}
-          {field('manufacturer', 'メーカー', 'estimate-manufacturers')}
-          {field('specification', '仕様1', 'estimate-materials')}
-          {field('specification2', '仕様2')}
-          {field('specification3', '仕様3')}
+          {!cover && field('category', '部位', 'estimate-parts')}
+          {!cover && field('manufacturer', 'メーカー', 'estimate-manufacturers')}
+          {field(
+            'specification',
+            cover ? '仕様・規格・寸法' : '仕様1',
+            cover ? undefined : 'estimate-materials'
+          )}
+          {!cover && field('specification2', '仕様2')}
+          {!cover && field('specification3', '仕様3')}
           {field('quantity', '数量')}
           {field('unit', '単位', 'estimate-units')}
           {field('unitPrice', '単価')}
@@ -145,11 +156,11 @@ export function EstimateRowDialog({
             <span>金額（自動計算）</span>
             <strong>{estimateMoney(amount)} 円</strong>
           </div>
-          {field('room', '部屋')}
+          {!cover && field('room', '部屋')}
           <label className="estimate-row-note">
             備考
             <textarea
-              aria-label="明細の備考"
+              aria-label={cover ? '表紙の行の備考' : '明細の備考'}
               data-row-key="note"
               value={draft.note ?? ''}
               onChange={(e) => {
@@ -164,7 +175,7 @@ export function EstimateRowDialog({
             {error}
           </p>
         )}
-        {!canNext && (
+        {!canNext && !cover && (
           <p className="estimate-row-limit">
             この帳票の最後の行です。内訳を増やす場合は「内訳明細書を追加」を押してください。
           </p>

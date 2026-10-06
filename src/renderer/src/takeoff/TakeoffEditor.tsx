@@ -700,7 +700,7 @@ export function TakeoffEditor({
   const selectedFixed = state.items.find((i) => i.id === fixed)
   return (
     <section className="viewer takeoff-viewer" aria-busy={busy}>
-      <header className="viewer-header">
+      <header className="viewer-header drawing-work-header">
         <button
           className="icon-button"
           aria-label={backLabel}

@@ -20,6 +20,7 @@ import { MaterialManager } from '../MaterialManager'
 import { WallPdfDialog, WallBatchPdfDialog } from '../EstimatePdfDialog'
 import { TakeoffDialog } from './Dialogs'
 import { PdfPage } from './PdfPage'
+import { useWallWorkspace, WallSplitter } from './WallWorkspace'
 import './wall.css'
 export function WallEditor({
   drawing,
@@ -32,6 +33,7 @@ export function WallEditor({
   state: PageState
   navigation: (leave: (action: () => void) => void, busy: boolean) => React.JSX.Element
 }) {
+  const workspace = useWallWorkspace()
   const [docs, setDocs] = useState<WallDoc[]>([]),
     [materials, setMaterials] = useState<Material[]>([])
   const [body, setBody] = useState<WallBody | null>(null),
@@ -80,7 +82,7 @@ export function WallEditor({
   }
   async function refreshMaterials() {
     const m = await unwrap(window.sekisan.readMaterials(drawing.projectId))
-    setMaterials([...m.project, ...m.global])
+    setMaterials(m.project)
   }
   useEffect(() => {
     let active = true
@@ -91,7 +93,7 @@ export function WallEditor({
       .then(([d, m]) => {
         if (active) {
           setDocs(d)
-          setMaterials([...m.project, ...m.global])
+          setMaterials(m.project)
           if (d[0]) load(d[0])
         }
       })
@@ -151,12 +153,12 @@ export function WallEditor({
       scale: state.scaleRatio,
       heightMm: r?.heightMm ?? body?.heightMm ?? 2400,
       kind: body?.kind,
-      startSide: body?.startSide,
+      startSide: 'right',
       panel: body?.panel ? { ...body.panel, bottomMm: 0, coverageHeightMm: null } : undefined,
       materialName: body?.materialName ?? '',
       material: body?.material ?? emptyWallpaper(),
-      topTrimMm: body?.topTrimMm ?? 50,
-      bottomTrimMm: body?.bottomTrimMm ?? 50,
+      topTrimMm: 25,
+      bottomTrimMm: 25,
       offsetMm: 0,
       openings: []
     }
@@ -208,8 +210,8 @@ export function WallEditor({
   return (
     <section className="layout-screen wall-screen" aria-busy={busy}>
       {navigation(leave, busy)}
-      <div className="wall-workspace">
-        <aside className="wall-settings">
+      <div className="wall-workspace" ref={workspace.ref} style={workspace.style}>
+        <aside className="wall-settings" id="wall-settings">
           <fieldset disabled={busy || !!request}>
             <h2>壁の割り付け</h2>
             <label>
@@ -314,6 +316,9 @@ export function WallEditor({
                 >
                   左右を反転する
                 </button>
+                <p className="panel-description">
+                  壁の始点・終点と窓・ドアの左右位置を反転します。貼り始めの左右は下で指定します。
+                </p>
                 <label>
                   貼り始め
                   <select
@@ -362,6 +367,7 @@ export function WallEditor({
                   <WallPanelFields
                     body={body}
                     materials={materials}
+                    historyPanels={docs.flatMap((d) => (d.body.panel ? [d.body.panel] : []))}
                     edit={edit}
                     openMaster={() => setMaster(true)}
                   />
@@ -369,7 +375,7 @@ export function WallEditor({
                   <>
                     <h3>クロス</h3>
                     <label>
-                      マスタから選ぶ
+                      物件マスタから選ぶ
                       <select
                         aria-label="壁クロスの材料"
                         value=""
@@ -389,7 +395,7 @@ export function WallEditor({
                           .filter((m) => m.wallpaper)
                           .map((m) => (
                             <option value={m.id} key={m.id}>
-                              {m.projectId ? '物件' : '共通'}：{m.name}（幅 {m.wallpaper!.widthMm}
+                              {m.name}（幅 {m.wallpaper!.widthMm}
                               mm）
                             </option>
                           ))}
@@ -444,8 +450,9 @@ export function WallEditor({
             )}
           </fieldset>
         </aside>
+        <WallSplitter {...workspace.sidebar} label="設定欄の幅を調整" controls="wall-settings" />
         <div className="wall-main">
-          <div className="wall-plan">
+          <div className="wall-plan" id="wall-plan-region">
             <PdfPage
               pdf={pdf}
               pageNumber={state.pageNumber}
@@ -578,6 +585,11 @@ export function WallEditor({
               · ホイールでズーム · 右ドラッグでパン
             </div>
           </div>
+          <WallSplitter
+            {...workspace.plan}
+            label="平面図と展開図の高さを調整"
+            controls="wall-plan-region"
+          />
           <div className="wall-details">
             {body ? (
               <>

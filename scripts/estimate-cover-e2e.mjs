@@ -35,7 +35,6 @@ try {
     async (id) => (await window.sekisan.readEstimate({ id })).data,
     fixture.id
   )
-  await page.getByRole('button', { name: '行をまとめて編集', exact: true }).click()
   // Whole-row clicks and field buttons open the same popup. Cancel preserves the saved row.
   await page.getByTestId('estimate-cover-summary').first().locator('td').nth(6).click()
   const popup = page.getByRole('dialog', { name: '表紙の大項目を編集' })

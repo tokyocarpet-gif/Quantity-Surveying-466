@@ -58,7 +58,7 @@ export function LayoutPage({
   const floorRooms = current?.rooms.filter((r) => r.geometryType !== 'wall-line') ?? []
   const room = floorRooms.find((r) => r.id === selectedId) ?? floorRooms[0]
   const header = (leave: (action: () => void) => void, busy: boolean): React.JSX.Element => (
-    <header className="layout-page-header">
+    <header className="viewer-header drawing-work-header layout-page-header">
       <button
         className="icon-button"
         aria-label="図面一覧に戻る"
@@ -67,9 +67,9 @@ export function LayoutPage({
       >
         <ArrowLeft size={20} />
       </button>
-      <div className="layout-page-title">
-        <span className="eyebrow">{mode === 'wall' ? '壁材の割り付け' : '床材の割り付け'}</span>
+      <div className="viewer-title layout-page-title">
         <h1>{drawing.name}</h1>
+        <span>{mode === 'wall' ? '壁材の割り付け' : '床材の割り付け'}</span>
       </div>
       <div className="wall-actions">
         <button

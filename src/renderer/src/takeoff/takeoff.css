@@ -5,10 +5,6 @@
 .takeoff-viewer {
   height: 100vh;
 }
-.takeoff-viewer .viewer-header {
-  padding: 14px 22px;
-  min-height: 68px;
-}
 .scale-badge {
   font-size: 11px;
   background: #fff6e6;
@@ -609,9 +605,6 @@
   }
   .tool-group {
     padding-right: 5px;
-  }
-  .takeoff-viewer .viewer-header {
-    padding: 10px 16px;
   }
   .properties-scroll {
     padding: 12px;

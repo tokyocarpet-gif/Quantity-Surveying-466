@@ -276,3 +276,34 @@ test('税込・税抜の切替でも表紙13行とページ分けを保持し、
   body.taxDisplay = 'exclusive'
   assert.equal(estimateSheets(body, { cover: true, detail: false }).length, 1)
 })
+
+test('表紙のみの自由行で計算・改ページし、内訳を再利用できる', () => {
+  const original = fixture()
+  const body = estimateBodySchema.parse({
+    ...original,
+    coverExtras: Array.from({ length: 14 }, (_, i) => ({
+      ...blankEstimateLine(randomUUID()),
+      name: `表紙${i + 1}`,
+      quantity: '2.5',
+      unitPrice: 100
+    })),
+    presentation: { mode: 'cover', coverLineIds: [], outputCover: true, outputDetail: false }
+  })
+  assert.equal(calculateEstimate(body).subtotal, '3500')
+  assert.equal(calculateEstimate(body).total, '3850')
+  assert.equal(estimateSections(body).length, 0)
+  const sheets = estimateSheets(body)
+  assert.equal(sheets.length, 2)
+  assert.ok(sheets.every((s) => s.kind === 'cover'))
+  assert.deepEqual(
+    sheets.map((s) => s.extraIds?.length),
+    [13, 1]
+  )
+  assert.deepEqual(body.lines, original.lines)
+  const restored = estimateBodySchema.parse(JSON.parse(JSON.stringify(body)))
+  restored.presentation!.mode = 'detail'
+  assert.equal(calculateEstimate(restored).subtotal, '9500')
+  body.coverExtras = []
+  assert.equal(calculateEstimate(estimateBodySchema.parse(body)).subtotal, '0')
+  assert.equal(estimateSheets(body).length, 1)
+})

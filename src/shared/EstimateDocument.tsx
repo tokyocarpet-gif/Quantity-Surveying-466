@@ -36,6 +36,7 @@ export function EstimateDocument({
   selectedId,
   deleteRow,
   editCoverRow,
+  editCoverExtra,
   addCoverExtra,
   deleteCoverExtra,
   editRow
@@ -50,7 +51,8 @@ export function EstimateDocument({
   deleteRow?: (line: EstimateLine) => void
   editRow?: (line: EstimateLine) => void
   editCoverRow?: (row: CoverSummary) => void
-  addCoverExtra?: (key: string) => void
+  editCoverExtra?: (line: EstimateLine) => void
+  addCoverExtra?: (key: string, blanks?: number) => void
   deleteCoverExtra?: (id: string) => void
 }): React.JSX.Element {
   const issuerCompany = structuredIssuer(body)
@@ -175,16 +177,20 @@ export function EstimateDocument({
     )
   }
 
-  const blank = (count: number, append = addRow) =>
+  const blank = (
+    count: number,
+    append: ((key: string, blanks?: number) => void) | undefined = addRow,
+    all = false
+  ) =>
     Array.from({ length: Math.max(0, count) }, (_, i) => (
       <tr
         key={`blank-${i}`}
-        aria-hidden={!append || i > 0}
-        className={`paper-blank-row ${append && i === 0 ? 'paper-add-row' : ''}`}
+        aria-hidden={!append || (!all && i > 0)}
+        className={`paper-blank-row ${append && (all || i === 0) ? 'paper-add-row' : ''}`}
       >
         {Array.from({ length: 8 }, (_, j) => (
           <td key={j}>
-            {append && i === 0 && j !== 6 && (
+            {append && (all || i === 0) && (all || j !== 6) && (
               <button
                 type="button"
                 className="paper-add-cell paper-editor-only"
@@ -198,9 +204,10 @@ export function EstimateDocument({
                       'quantity',
                       'unit',
                       'unitPrice',
-                      '',
+                      'unitPrice',
                       'note'
-                    ][j]
+                    ][j],
+                    all ? i : 0
                   )
                 }
               >
@@ -361,16 +368,25 @@ export function EstimateDocument({
                   <>{sheet.indexes.map(row)}</>
                 )}
                 {extras.map((r) => {
+                  const empty =
+                    !r.itemNo &&
+                    !r.name &&
+                    !r.specification &&
+                    !r.note &&
+                    r.quantity === '0.0' &&
+                    r.unitPrice === 0
+
                   const c = (key: keyof EstimateLine, label: string, numeric = false) =>
                     cell(
                       `extra:${r.id}`,
                       key,
-                      String(r[key] ?? ''),
+                      empty ? '' : String(r[key] ?? ''),
                       `表紙の自由行${allExtras.indexOf(r) + 1}の${label}`,
                       {
                         numeric,
-                        display:
-                          key === 'unitPrice'
+                        display: empty
+                          ? ''
+                          : key === 'unitPrice'
                             ? r.unitPrice === null
                               ? '未設定'
                               : formatDecimal(String(r.unitPrice))
@@ -381,7 +397,19 @@ export function EstimateDocument({
                       }
                     )
                   return (
-                    <tr key={r.id} className="paper-data-row" data-testid="estimate-cover-extra">
+                    <tr
+                      key={r.id}
+                      className="paper-data-row"
+                      data-testid="estimate-cover-extra"
+                      onClick={
+                        editCoverExtra
+                          ? (e) => {
+                              if (!(e.target as HTMLElement).closest('button,input,textarea'))
+                                editCoverExtra(r)
+                            }
+                          : undefined
+                      }
+                    >
                       <td className="paper-center">
                         <div className="paper-row-content">{c('itemNo', '番号')}</div>
                       </td>
@@ -402,7 +430,7 @@ export function EstimateDocument({
                       </td>
                       <td className="paper-number">
                         <div className="paper-row-content">
-                          {money(estimateLineAmount(r, body.amountRounding))}
+                          {empty ? '' : money(estimateLineAmount(r, body.amountRounding))}
                         </div>
                       </td>
                       <td>
@@ -425,7 +453,8 @@ export function EstimateDocument({
                   ESTIMATE_COVER_ROWS -
                     (summary ? coverRows.length : sheet.indexes.length) -
                     extras.length,
-                  addCoverExtra
+                  addCoverExtra,
+                  !!addCoverExtra
                 )}
               </tbody>
             </table>

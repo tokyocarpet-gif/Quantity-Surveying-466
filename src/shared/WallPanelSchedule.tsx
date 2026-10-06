@@ -27,7 +27,7 @@ export function WallPanelSpecification({ body: b }: { body: WallBody }) {
       {p.alignment === 'edge' && b.startSide === 'right'
         ? '右下から'
         : panelAlignments[p.alignment]}{' '}
-      · 横移動 {p.offsetX}mm / 縦移動 {p.offsetY}mm · 床から {p.bottomMm}mm / 施工高さ{' '}
+      · 横移動 {p.offsetX}mm / 縦移動 {p.offsetY}mm · 施工範囲：床から {p.bottomMm}mm / 高さ{' '}
       {p.coverageHeightMm ?? b.heightMm - p.bottomMm}mm
     </p>
   )

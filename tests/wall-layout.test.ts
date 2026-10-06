@@ -276,7 +276,7 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     const tileReport = s.wallReport({ ...tileInput, expectedRevision: 1 })
     assert.ok(tileReport.result.panel!.count > 0)
     const tileHtml = wallPrintHtml(tileReport)
-    assert.match(tileHtml, /壁タイル割り付け/)
+    assert.match(tileHtml, /タイル割り付け/)
     assert.match(tileHtml, /必要元材/)
     assert.match(tileHtml, /右から/)
     assert.match(tileHtml, /外形 横 mm/)

@@ -97,6 +97,7 @@ try {
   await expect(page.getByText('表紙 残り0／12行', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '選択した明細を表紙で編集', exact: true }).click()
   await expect(page.locator('[data-sheet-kind=cover]')).toBeVisible()
+  await page.getByRole('button', { name: 'セル編集に切り替え', exact: true }).click()
   await expect(page.getByRole('button', { name: '内訳書', exact: true })).toHaveCount(0)
   await expect(page.getByTestId('estimate-row')).toHaveCount(12)
   await cell('extra:00000000-0000-4000-8000-000000000001', 'unitPrice').click()

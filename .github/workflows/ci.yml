@@ -32,6 +32,7 @@ jobs:
       - run: node scripts/estimate-modern-e2e.mjs
       - run: node scripts/estimate-manual-e2e.mjs
       - run: node scripts/estimate-cover-e2e.mjs
+      - run: node scripts/estimate-cover-popup-e2e.mjs
       - run: node scripts/estimate-free-cover-e2e.mjs
       - run: node scripts/company-cover-e2e.mjs
       - run: node scripts/estimate-transfer-e2e.mjs
