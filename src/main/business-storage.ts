@@ -5,6 +5,7 @@ import {
   catalogOptionsSchema,
   addCatalogOptionSchema,
   renameCatalogOptionSchema,
+  deleteCatalogOptionSchema,
   builtinCatalogValues
 } from '../shared/business'
 export const BUSINESS_SQL = `
@@ -75,5 +76,26 @@ export function renameCatalogOption(db: Database.Database, input: unknown): void
     save(db, 'catalog-options', catalogOptionsSchema.parse(options))
     // Materials are editable masters. Takeoff and estimate snapshots retain their original labels.
     db.prepare(`UPDATE materials SET ${column}=? WHERE ${column}=?`).run(data.name, data.oldName)
+  })()
+}
+
+export function deleteCatalogOption(db: Database.Database, input: unknown): void {
+  const data = deleteCatalogOptionSchema.parse(input)
+  db.transaction(() => {
+    if (builtinCatalogValues(data.kind).includes(data.name))
+      throw new Error('基本項目は数量計算に使用するため削除できません。')
+    const options = readCatalogOptions(db)
+    const key = data.kind === 'part' ? 'parts' : 'units'
+    const column = data.kind === 'part' ? 'category' : 'unit'
+    // Check all projects, including materials not visible in the current dialog.
+    if (db.prepare(`SELECT 1 FROM materials WHERE ${column}=? LIMIT 1`).get(data.name))
+      throw new Error(
+        '材料マスタで使用中のため削除できません。共通・物件マスタの材料の設定を変更してから削除してください。'
+      )
+    if (!options[key].includes(data.name))
+      throw new Error('削除する項目が見つかりません。一覧を開き直してください。')
+    options[key] = options[key].filter((name) => name !== data.name)
+    save(db, 'catalog-options', catalogOptionsSchema.parse(options))
+    // Saved takeoff/estimate labels are snapshots and remain untouched.
   })()
 }

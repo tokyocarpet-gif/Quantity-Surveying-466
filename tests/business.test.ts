@@ -346,3 +346,89 @@ test('追加した部位・単位を全材料で改名し、重複・基本項�
     rmSync(folder, { recursive: true, force: true })
   }
 })
+
+test('部位・単位の削除は基本項目と全物件の使用中項目を保護し、未使用項目だけを永続的に削除する', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'sekisan-catalog-delete-'))
+  const s = new Storage(join(folder, 'app'))
+  try {
+    const client = s.createClient('削除テスト')
+    const project = s.createProject({
+      clientId: client.id,
+      name: '別物件',
+      memo: '',
+      status: 'active'
+    })
+    for (const input of [
+      { kind: 'part', name: '未使用部位' },
+      { kind: 'part', name: '建具' },
+      { kind: 'unit', name: '未使用単位' },
+      { kind: 'unit', name: '枚' }
+    ])
+      s.addCatalogOption(input)
+    const id = randomUUID()
+    s.changeMaterials({
+      kind: 'save',
+      id,
+      input: { projectId: project.id, category: '建具', name: '扉', unit: '枚', unitPrice: 1500 }
+    })
+    const before = s.readMaterials(project.id)
+    for (const [kind, name] of [
+      ['part', 'ceiling'],
+      ['part', '天井'],
+      ['part', 'wall'],
+      ['part', '壁'],
+      ['part', 'floor'],
+      ['part', '床'],
+      ['part', 'baseboard'],
+      ['part', '巾木'],
+      ['unit', '㎡'],
+      ['unit', 'm'],
+      ['unit', '式'],
+      ['unit', '個']
+    ])
+      assert.throws(() => s.deleteCatalogOption({ kind, name }), /基本項目/)
+    for (const [kind, name] of [
+      ['part', '建具'],
+      ['unit', '枚']
+    ])
+      assert.throws(() => s.deleteCatalogOption({ kind, name }), /使用中/)
+    assert.throws(() => s.deleteCatalogOption({ kind: 'part', name: '不存在' }), /見つかりません/)
+    assert.throws(() => s.deleteCatalogOption({ kind: 'unit', name: 'a'.repeat(21) }))
+    assert.deepEqual(s.readMaterials(project.id), before)
+    s.deleteCatalogOption({ kind: 'part', name: ' 未使用部位 ' })
+    s.deleteCatalogOption({ kind: 'unit', name: '未使用単位' })
+    const after = s.readMaterials(project.id)
+    assert.deepEqual(after.parts, ['建具'])
+    assert.deepEqual(after.units, ['枚'])
+    assert.deepEqual(after.project, before.project)
+    assert.deepEqual(after.global, before.global)
+    // A label used only by a legacy/common material must also be protected.
+    s.changeMaterials({
+      kind: 'save',
+      id: randomUUID(),
+      input: { projectId: null, category: '養生', name: '養生材', unit: '本', unitPrice: null }
+    })
+    assert.throws(() => s.deleteCatalogOption({ kind: 'part', name: '養生' }), /使用中/)
+    assert.throws(() => s.deleteCatalogOption({ kind: 'unit', name: '本' }), /使用中/)
+    s.changeMaterials({
+      kind: 'save',
+      id,
+      input: { projectId: project.id, category: 'wall', name: '扉', unit: '㎡', unitPrice: 1500 }
+    })
+    s.deleteCatalogOption({ kind: 'part', name: '建具' })
+    s.deleteCatalogOption({ kind: 'unit', name: '枚' })
+    const expected = s.readMaterials(project.id)
+    assert.deepEqual(expected.parts, [])
+    assert.deepEqual(expected.units, [])
+    s.close()
+    const reopened = new Storage(join(folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readMaterials(project.id), expected)
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    s.close()
+    rmSync(folder, { recursive: true, force: true })
+  }
+})

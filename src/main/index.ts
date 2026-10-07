@@ -166,6 +166,7 @@ function registerIpc(): void {
   handle('company:save', (input) => storage.saveCompany(input))
   handle('catalog:add-option', (input) => storage.addCatalogOption(input))
   handle('catalog:rename-option', (input) => storage.renameCatalogOption(input))
+  handle('catalog:delete-option', (input) => storage.deleteCatalogOption(input))
   handle('estimate:create', (input) => storage.createEstimate(input))
   handle('estimate:read', (input) => storage.readEstimate(input))
   handle('estimate:list', (input) => storage.listEstimates(input))

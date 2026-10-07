@@ -714,7 +714,7 @@ export function TakeoffEditor({
           <span>数量拾い出し</span>
         </div>
         <button className="secondary" onClick={() => setMasterOpen(true)} disabled={busy}>
-          仕上げ材マスタ
+          マスタ管理
         </button>
         <span className={`scale-badge ${state.scaleRatio ? 'set' : ''}`}>
           {state.scaleRatio ? `縮尺 ${scaleText(state.scaleRatio)}（PDF原寸）` : '縮尺未設定'}

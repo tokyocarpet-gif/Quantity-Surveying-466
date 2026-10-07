@@ -301,8 +301,8 @@ try {
   await expect(page.getByLabel('壁の高さ（mm）')).toHaveValue('2400')
   await expect(side).toHaveValue('right')
   // Material master stores wallpaper dimensions and Enter never submits.
-  await page.getByRole('button', { name: '仕上げ材マスタを開く', exact: true }).click()
-  const master = page.getByRole('dialog', { name: '仕上げ材マスタ', exact: true })
+  await page.getByRole('button', { name: 'マスタ管理を開く', exact: true }).click()
+  const master = page.getByRole('dialog', { name: 'マスタ管理', exact: true })
   await master.getByRole('button', { name: '材料を追加', exact: true }).click()
   await master.getByLabel('材料の部位', { exact: true }).selectOption('wall')
   await master.getByLabel('材料名・仕様', { exact: true }).fill('登録クロス')

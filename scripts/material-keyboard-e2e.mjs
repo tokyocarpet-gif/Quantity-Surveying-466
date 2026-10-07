@@ -19,7 +19,7 @@ try {
   await page.getByRole('button', { name: '案件を作成', exact: true }).first().click()
   await page.getByRole('textbox', { name: '案件名' }).fill('材料登録確認')
   await page.getByRole('button', { name: '保存する', exact: true }).click()
-  await page.getByRole('button', { name: '仕上げ材マスタ', exact: true }).click()
+  await page.getByRole('button', { name: 'マスタ管理', exact: true }).click()
   const field = (name) => page.getByLabel(name, { exact: true })
   const save = page.getByRole('button', { name: '材料を保存', exact: true })
   const context = () =>
@@ -123,6 +123,7 @@ try {
     ['単位', '追加する単位名', '本']
   ]) {
     const before = await context()
+    await page.getByRole('button', { name: `${kind}マスタ`, exact: true }).click()
     await page.getByRole('button', { name: `${kind}を追加`, exact: true }).click()
     await field(label).fill(name)
     await field(label).press('Enter')
@@ -131,6 +132,11 @@ try {
     assert.deepEqual(await context(), before)
     await button.click()
     await expect(field(label)).toHaveCount(0)
+    await page
+      .getByRole('dialog', { name: `${kind}マスタ`, exact: true })
+      .locator('.modal-footer')
+      .getByRole('button', { name: '閉じる', exact: true })
+      .click()
   }
   console.log(
     'PASS 材料のEnter移動: 共通・物件 / 追加・編集 / タイル・シート・カーペット / IME・長押し / 保存ボタン・必須入力 / 部位・単位 / Tab維持'

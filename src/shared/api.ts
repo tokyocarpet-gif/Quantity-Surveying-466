@@ -2,7 +2,12 @@ import type { WallAddress, WallDoc, WallSave, WallBatchPdfRequest } from './wall
 import type { LayoutPdfRequest } from './layout-pdf'
 import type { LayoutDoc, LayoutSave } from './layout'
 import type { PdfPreview } from './pdf'
-import type { Company, AddCatalogOption, RenameCatalogOption } from './business'
+import type {
+  Company,
+  AddCatalogOption,
+  RenameCatalogOption,
+  DeleteCatalogOption
+} from './business'
 import type {
   EstimatePdfRequest,
   EstimateDoc,
@@ -86,6 +91,7 @@ export interface AppApi {
   saveCompany(input: Company): Promise<Result<Company>>
   addCatalogOption(input: AddCatalogOption): Promise<Result<void>>
   renameCatalogOption(input: RenameCatalogOption): Promise<Result<void>>
+  deleteCatalogOption(input: DeleteCatalogOption): Promise<Result<void>>
   createEstimate(input: SummaryExport): Promise<Result<EstimateDoc>>
   readEstimate(input: EstimateRead): Promise<Result<EstimateDoc>>
   saveEstimate(input: EstimateSave): Promise<Result<EstimateDoc>>

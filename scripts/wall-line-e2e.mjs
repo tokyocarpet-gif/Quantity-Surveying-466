@@ -25,7 +25,7 @@ try {
   await page.getByRole('button', { name: '案件を作成', exact: true }).first().click()
   await page.getByRole('textbox', { name: '案件名' }).fill('ボーダー工事')
   await page.getByRole('button', { name: '保存する', exact: true }).click()
-  await page.getByRole('button', { name: '仕上げ材マスタ', exact: true }).click()
+  await page.getByRole('button', { name: 'マスタ管理', exact: true }).click()
   await page.getByRole('button', { name: '材料を追加', exact: true }).click()
   await page.getByLabel('材料の部位', { exact: true }).selectOption('wall')
   await page.getByLabel('材料名・仕様', { exact: true }).fill('養生プラベニア')

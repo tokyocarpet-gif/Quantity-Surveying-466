@@ -33,6 +33,10 @@ export function summaryTemplateBytes(): Buffer {
   return readFileSync(path)
 }
 
+// The supplied October 2026 template contains six fixed 25-row detail pages.
+const TEMPLATE_PAGES = 6
+const PAGE_ROWS = 25
+
 type Value = string | number | null
 type Entry = {
   row: number
@@ -108,7 +112,7 @@ export function summaryWorkbookLayout(report: SummaryReport, section: string) {
   const headings = wrap(section, 80)
   const pages: Page[] = []
   const makePage = (): Page => {
-    const start = pages.length * 25 + 1
+    const start = pages.length * PAGE_ROWS + 1
     const page: Page = {
       start,
       end: start + 24,
@@ -164,7 +168,7 @@ export function summaryWorkbookLayout(report: SummaryReport, section: string) {
     }
   }
   const usedPages = pages.length
-  while (pages.length < 10) makePage()
+  while (pages.length < TEMPLATE_PAGES) makePage()
   if (pages.length > 80)
     throw new Error('Excelの内訳が80ページを超えます。出力対象を分けてください。')
   for (const p of pages) {
@@ -210,74 +214,64 @@ function cell(xml: string, address: string, value: Value, formula?: string): str
   if (!found) throw new Error(`Excelのひな形に転記先 ${address} がありません。`)
   return result
 }
-const amountFormula = (n: number): string => `IF(OR(G${n}="",I${n}=""),"",ROUND(G${n}*I${n},0))`
+const amountFormula = (n: number): string => `IF(OR(F${n}="",H${n}=""),"",ROUND(F${n}*H${n},0))`
 const sumFormula = (first: number, last: number): string =>
-  `IF(COUNT(G${first}:G${last})=0,"",IF(COUNT(J${first}:J${last})=COUNT(G${first}:G${last}),SUM(J${first}:J${last}),""))`
+  `IF(COUNT(F${first}:F${last})=0,"",IF(COUNT(I${first}:I${last})=COUNT(F${first}:F${last}),SUM(I${first}:I${last}),""))`
 const shiftRef = (ref: string, offset: number): string =>
   ref.replace(/([A-Z]+)(\d+)/g, (_, col, row) => `${col}${Number(row) + offset}`)
 
 function extendDetail(original: string, count: number): string {
-  if (count <= 10) return original
-  let xml = original
+  const lastStart = (TEMPLATE_PAGES - 1) * PAGE_ROWS + 1
   const lastPage = Array.from(original.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g))
-    .filter((m) => Number(m[1]) >= 226 && Number(m[1]) <= 250)
+    .filter((m) => Number(m[1]) >= lastStart)
     .map((m) => m[0])
     .join('')
   const originalMerges = Array.from(original.matchAll(/<mergeCell ref="([^"]+)"\s*\/>/g)).filter(
-    (m) => Number(m[1].match(/\d+/)![0]) >= 226
+    (m) => Number(m[1].match(/\d+/)![0]) >= lastStart
   )
   let rows = '',
-    merges = '',
-    breaks = ''
-  for (let p = 10; p < count; p++) {
-    const offset = (p - 9) * 25
+    merges = ''
+  for (let p = TEMPLATE_PAGES; p < count; p++) {
+    const offset = (p - TEMPLATE_PAGES + 1) * PAGE_ROWS
     rows += lastPage.replace(/\br="([A-Z]*)(\d+)"/g, (_, c, r) => `r="${c}${Number(r) + offset}"`)
     merges += originalMerges.map((m) => `<mergeCell ref="${shiftRef(m[1], offset)}"/>`).join('')
-    breaks += `<brk id="${p * 25}" max="11" man="1"/>`
   }
-  const addedRows = (count - 10) * 25
-  // The template also has formatted blank rows outside its print area. Move
-  // those down, rather than creating duplicate row/cell addresses at row 251.
-  xml = xml.replace(/<row\b[^>]*\br="(\d+)"[^>]*>[\s\S]*?<\/row>/g, (row, n) =>
-    Number(n) > 250
-      ? row.replace(
-          /\br="([A-Z]*)(\d+)"/g,
-          (_: string, c: string, r: string) => `r="${c}${Number(r) + addedRows}"`
-        )
-      : row
-  )
-  xml = xml
-    .replace(new RegExp(`<row r="${251 + addedRows}"`), `${rows}<row r="${251 + addedRows}"`)
-    .replace(
-      /<dimension ref="A1:([A-Z]+)(\d+)"\s*\/>/,
-      (_, col, row) => `<dimension ref="A1:${col}${Number(row) + addedRows}"/>`
-    )
-    .replace(
-      /<mergeCells count="(\d+)">/,
-      (_, n) => `<mergeCells count="${Number(n) + originalMerges.length * (count - 10)}">`
-    )
-    .replace('</mergeCells>', merges + '</mergeCells>')
-    .replace(
-      /<rowBreaks count="9" manualBreakCount="9">/,
-      `<rowBreaks count="${count - 1}" manualBreakCount="${count - 1}">`
-    )
-    .replace('</rowBreaks>', breaks + '</rowBreaks>')
-  // Extend the original dropdown ranges, keeping their formulas and IDs.
-  const extendRanges = (ranges: string): string => {
-    const tail = ranges.split(' ').filter((ref) => Number(ref.match(/\d+/)?.[0]) >= 226)
-    return (
-      ranges +
-      Array.from({ length: count - 10 }, (_, p) =>
-        tail.map((ref) => ' ' + shiftRef(ref, (p + 1) * 25)).join('')
-      ).join('')
-    )
+  let xml = original
+  if (count > TEMPLATE_PAGES) {
+    xml = xml
+      .replace('</sheetData>', rows + '</sheetData>')
+      .replace(/<dimension ref="A1:K\d+"\s*\/>/, `<dimension ref="A1:K${count * PAGE_ROWS}"/>`)
+      .replace(
+        /<mergeCells count="(\d+)">/,
+        (_, n) =>
+          `<mergeCells count="${Number(n) + originalMerges.length * (count - TEMPLATE_PAGES)}">`
+      )
+      .replace('</mergeCells>', merges + '</mergeCells>')
+    // Extend the original dropdown ranges without changing their lists or IDs.
+    const extendRanges = (ranges: string): string => {
+      const tail = ranges.split(' ').filter((ref) => Number(ref.match(/\d+/)?.[0]) >= lastStart)
+      return (
+        ranges +
+        Array.from({ length: count - TEMPLATE_PAGES }, (_, p) =>
+          tail.map((ref) => ' ' + shiftRef(ref, (p + 1) * PAGE_ROWS)).join('')
+        ).join('')
+      )
+    }
+    xml = xml
+      .replace(/\bsqref="([^"]+)"/g, (_, refs) => `sqref="${extendRanges(refs)}"`)
+      .replace(
+        /<xm:sqref>([^<]+)<\/xm:sqref>/g,
+        (_, refs) => `<xm:sqref>${extendRanges(refs)}</xm:sqref>`
+      )
   }
-  return xml
-    .replace(/\bsqref="([^"]+)"/g, (_, refs) => `sqref="${extendRanges(refs)}"`)
-    .replace(
-      /<xm:sqref>([^<]+)<\/xm:sqref>/g,
-      (_, refs) => `<xm:sqref>${extendRanges(refs)}</xm:sqref>`
-    )
+  // The reference only prints its first page. Include all retained pages and
+  // keep each 25-row form together when Excel prints the exported workbook.
+  const breaks = Array.from(
+    { length: count - 1 },
+    (_, p) => `<brk id="${(p + 1) * PAGE_ROWS}" max="10" man="1"/>`
+  ).join('')
+  const rowBreaks = `<rowBreaks count="${count - 1}" manualBreakCount="${count - 1}">${breaks}</rowBreaks>`
+  return xml.replace(/(<headerFooter\b[^>]*(?:\/>|>[\s\S]*?<\/headerFooter>))/, '$1' + rowBreaks)
 }
 
 export function summaryXlsxName(report: SummaryReport): string {
@@ -297,16 +291,16 @@ export function renderSummaryXlsx(
   let detail = extendDetail(zip.readAsText('xl/worksheets/sheet2.xml'), layout.pages.length)
   for (const [index, page] of layout.pages.entries()) {
     detail = cell(detail, `C${page.start}`, report.projectName, "'表紙'!C15")
-    if (company.name || index >= 10)
+    if (company.name || index >= TEMPLATE_PAGES)
       detail = cell(
         detail,
-        `K${page.start}`,
+        `J${page.start}`,
         `${company.name || '東京カーペット加工㈱'}　${index + 1}`
       )
     for (let r = page.first; r <= page.last; r++) {
-      for (const col of ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'L'])
+      for (const col of ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'K'])
         detail = cell(detail, `${col}${r}`, null)
-      detail = cell(detail, `J${r}`, null, amountFormula(r))
+      detail = cell(detail, `I${r}`, null, amountFormula(r))
     }
     if (index < layout.usedPages)
       for (const [i, heading] of layout.headings.entries())
@@ -316,15 +310,15 @@ export function renderSummaryXlsx(
         B: e.room,
         C: e.part,
         D: e.finish,
-        G: e.quantity,
-        H: e.unit,
-        I: e.price,
-        L: e.note
+        F: e.quantity,
+        G: e.unit,
+        H: e.price,
+        K: e.note
       }))
         detail = cell(detail, `${col}${e.row}`, value === '' ? null : value)
-      detail = cell(detail, `J${e.row}`, e.amount, amountFormula(e.row))
+      detail = cell(detail, `I${e.row}`, e.amount, amountFormula(e.row))
     }
-    detail = cell(detail, `J${page.end}`, page.total, sumFormula(page.first, page.last))
+    detail = cell(detail, `I${page.end}`, page.total, sumFormula(page.first, page.last))
   }
   let cover = zip.readAsText('xl/worksheets/sheet1.xml')
   const put = (address: string, value: Value, formula?: string): void => {
@@ -335,38 +329,38 @@ export function renderSummaryXlsx(
   put('C17', section)
   const date = new Date(report.generatedAt)
   put(
-    'J7',
+    'I7',
     (Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(1899, 11, 30)) /
       86400000
   )
-  if (company.name) put('I14', company.name)
-  if (company.postalCode) put('I15', `〒${company.postalCode}`)
-  if (company.address) put('I16', company.address)
+  if (company.name) put('H14', company.name)
+  if (company.postalCode) put('H15', `〒${company.postalCode}`)
+  if (company.address) put('H16', company.address)
   if (company.phone || company.fax)
     put(
-      'I17',
+      'H17',
       [company.phone && `TEL ${company.phone}`, company.fax && `FAX ${company.fax}`]
         .filter(Boolean)
         .join('　')
     )
   if (company.estimateValidity) put('C18', company.estimateValidity)
   if (company.paymentTerms) put('C19', company.paymentTerms)
-  for (let r = 22; r <= 32; r++) put(`J${r}`, r === 22 ? layout.total : null, amountFormula(r))
+  for (let r = 22; r <= 32; r++) put(`I${r}`, r === 22 ? layout.total : null, amountFormula(r))
   put('B22', section)
-  put('D22', '内訳書による')
-  put('G22', 1)
-  put('H22', '式')
-  const refs = layout.pages.map((p) => `'内訳書'!J${p.end}`).join(',')
+  put('D22', '別紙内訳書通り')
+  put('F22', 1)
+  put('G22', '式')
+  const refs = layout.pages.map((p) => `'内訳書'!I${p.end}`).join(',')
   // Include the retained blank pages as well, so subsequent Excel entry is
   // reflected in the cover and missing prices never yield a partial total.
   const complete = layout.pages
-    .map((p) => `COUNT('内訳書'!G${p.first}:G${p.last})=COUNT('内訳書'!J${p.first}:J${p.last})`)
+    .map((p) => `COUNT('内訳書'!F${p.first}:F${p.last})=COUNT('内訳書'!I${p.first}:I${p.last})`)
     .join(',')
-  put('I22', layout.total, `IF(AND(${complete}),SUM(${refs}),"")`)
+  put('H22', layout.total, `IF(AND(${complete}),SUM(${refs}),"")`)
   put('B23', '諸経費')
-  put('H23', '式')
-  put('J33', layout.total, sumFormula(22, 32))
-  put('C12', layout.total, 'IF(J33="","",J33)')
+  put('G23', '式')
+  put('I33', layout.total, sumFormula(22, 32))
+  put('C12', layout.total, 'IF(I33="","",I33)')
   const add = (path: string, value: string): void => {
     zip.updateFile(path, Buffer.from(value))
   }
@@ -375,8 +369,10 @@ export function renderSummaryXlsx(
   let workbook = zip
     .readAsText('xl/workbook.xml')
     .replace(/<calcPr\b[^>]*\/>/, '<calcPr fullCalcOnLoad="1" forceFullCalc="1"/>')
-  if (layout.pages.length > 10)
-    workbook = workbook.replace('内訳書!$A$1:$L$250', `内訳書!$A$1:$L$${layout.pages.length * 25}`)
+  workbook = workbook.replace(
+    '内訳書!$A$1:$K$25',
+    `内訳書!$A$1:$K$${layout.pages.length * PAGE_ROWS}`
+  )
   add('xl/workbook.xml', workbook)
   zip.deleteFile('xl/calcChain.xml')
   add(

@@ -203,12 +203,6 @@ small {
   color: #83918e;
   line-height: 1.5;
 }
-.workspace-label {
-  font-size: 10px;
-  letter-spacing: 1px;
-  color: #89968f;
-  margin: 0 13px 13px;
-}
 .nav-item {
   height: 43px;
   flex-shrink: 0;
@@ -265,36 +259,6 @@ small {
 .sidebar-bottom {
   margin-top: auto;
   padding-top: 20px;
-}
-.backup-tip {
-  background: #f3f6f5;
-  border: 1px solid #e4ebe7;
-  border-radius: 9px;
-  padding: 16px 14px;
-  margin: 0 3px 18px;
-  position: relative;
-}
-.backup-tip > svg {
-  color: #6f9384;
-  margin-bottom: 5px;
-}
-.backup-tip strong {
-  display: block;
-  font-size: 11px;
-  font-weight: 600;
-  color: #476658;
-}
-.backup-tip p {
-  font-size: 10px;
-  color: #86948d;
-  margin: 6px 0 11px;
-  line-height: 1.9;
-}
-.backup-tip button {
-  font-size: 10px;
-  color: #3f7d65;
-  padding: 0;
-  gap: 3px;
 }
 .version {
   display: flex;

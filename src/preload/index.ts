@@ -18,6 +18,7 @@ const api: AppApi = {
   saveCompany: (input) => ipcRenderer.invoke('company:save', input),
   addCatalogOption: (input) => ipcRenderer.invoke('catalog:add-option', input),
   renameCatalogOption: (input) => ipcRenderer.invoke('catalog:rename-option', input),
+  deleteCatalogOption: (input) => ipcRenderer.invoke('catalog:delete-option', input),
   createEstimate: (input) => ipcRenderer.invoke('estimate:create', input),
   readEstimate: (input) => ipcRenderer.invoke('estimate:read', input),
   saveEstimate: (input) => ipcRenderer.invoke('estimate:save', input),

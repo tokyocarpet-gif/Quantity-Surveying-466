@@ -90,6 +90,8 @@ export const addCatalogOptionSchema = z
   .strict()
   .refine((v) => v.kind !== 'unit' || v.name.length <= 20, '単位は20文字以内にしてください。')
 export type AddCatalogOption = z.infer<typeof addCatalogOptionSchema>
+export const deleteCatalogOptionSchema = addCatalogOptionSchema
+export type DeleteCatalogOption = z.infer<typeof deleteCatalogOptionSchema>
 
 export function companyIdentity(company: Company): CompanyIdentity {
   return companyIdentitySchema.parse(

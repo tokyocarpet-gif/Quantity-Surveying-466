@@ -91,7 +91,7 @@ export function WallPanelFields({
         </select>
       </label>
       <button className="secondary" onClick={openMaster}>
-        仕上げ材マスタを開く
+        マスタ管理を開く
       </button>
       <label>
         材料名

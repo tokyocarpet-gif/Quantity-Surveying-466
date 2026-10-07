@@ -100,6 +100,9 @@ export function MaterialManager({
     name: string
     oldName?: string
   } | null>(null)
+  const [optionDelete, setOptionDelete] = useState<{ kind: 'part' | 'unit'; name: string } | null>(
+    null
+  )
   const [optionList, setOptionList] = useState<'part' | 'unit' | null>(null)
   const parts = [
     ...new Set([
@@ -123,38 +126,22 @@ export function MaterialManager({
   const imported = new Set(data?.project.map((m) => m.sourceId))
   const available = list.filter((m) => !imported.has(m.id))
   return (
-    <TakeoffDialog title="仕上げ材マスタ" close={close} busy={busy}>
+    <TakeoffDialog title="マスタ管理" close={close} busy={busy}>
       <div className="master-body">
-        <div className="master-actions">
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() => setOption({ kind: 'part', name: '' })}
-          >
-            部位を追加
-          </button>
-          <button
-            className="secondary"
-            disabled={busy}
-            onClick={() => setOption({ kind: 'unit', name: '' })}
-          >
-            単位を追加
-          </button>
-        </div>
         <div className="master-actions">
           <button
             className="secondary"
             disabled={busy || !!edit}
             onClick={() => setOptionList('part')}
           >
-            部位の一覧・編集
+            部位マスタ
           </button>
           <button
             className="secondary"
             disabled={busy || !!edit}
             onClick={() => setOptionList('unit')}
           >
-            単位の一覧・編集
+            単位マスタ
           </button>
         </div>
         <div className="master-tabs">
@@ -464,7 +451,7 @@ export function MaterialManager({
       </footer>
       {optionList && (
         <TakeoffDialog
-          title={optionList === 'part' ? '部位の一覧・編集' : '単位の一覧・編集'}
+          title={optionList === 'part' ? '部位マスタ' : '単位マスタ'}
           close={() => setOptionList(null)}
           busy={busy}
         >
@@ -479,17 +466,30 @@ export function MaterialManager({
                   {builtinCatalogValues(optionList).includes(name) ? (
                     <small>基本項目</small>
                   ) : (
-                    <button
-                      className="secondary"
-                      disabled={busy}
-                      aria-label={`${optionList === 'part' ? '部位' : '単位'}「${name}」を編集`}
-                      onClick={() => {
-                        setError('')
-                        setOption({ kind: optionList, name, oldName: name })
-                      }}
-                    >
-                      編集
-                    </button>
+                    <div className="catalog-option-actions">
+                      <button
+                        className="secondary"
+                        disabled={busy}
+                        aria-label={`${optionList === 'part' ? '部位' : '単位'}「${name}」を編集`}
+                        onClick={() => {
+                          setError('')
+                          setOption({ kind: optionList, name, oldName: name })
+                        }}
+                      >
+                        編集
+                      </button>
+                      <button
+                        className="text-button danger-text"
+                        disabled={busy}
+                        aria-label={`${optionList === 'part' ? '部位' : '単位'}「${name}」を削除`}
+                        onClick={() => {
+                          setError('')
+                          setOptionDelete({ kind: optionList, name })
+                        }}
+                      >
+                        削除
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -507,7 +507,7 @@ export function MaterialManager({
                 setOption({ kind: optionList, name: '' })
               }}
             >
-              項目を追加
+              {optionList === 'part' ? '部位を追加' : '単位を追加'}
             </button>
           </footer>
         </TakeoffDialog>
@@ -568,6 +568,62 @@ export function MaterialManager({
               {option.oldName === undefined ? '追加して保存' : '変更して保存'}
             </button>
           </form>
+        </TakeoffDialog>
+      )}
+      {optionDelete && (
+        <TakeoffDialog
+          title={`${optionDelete.kind === 'part' ? '部位' : '単位'}を削除`}
+          close={() => {
+            setOptionDelete(null)
+            setError('')
+          }}
+          busy={busy}
+        >
+          <div className="preview-body">
+            <p>
+              「{optionDelete.name}」を{optionDelete.kind === 'part' ? '部位' : '単位'}
+              マスタから削除しますか？
+            </p>
+            <p>
+              保存済みの拾い出し・見積は変更しません。材料マスタで使用中の項目は削除できません。
+            </p>
+            {error && (
+              <p className="form-error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
+          <footer className="modal-footer">
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setOptionDelete(null)
+                setError('')
+              }}
+            >
+              戻る
+            </button>
+            <button
+              className="primary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                setError('')
+                try {
+                  await unwrap(window.sekisan.deleteCatalogOption(optionDelete))
+                  await refresh()
+                  setOptionDelete(null)
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : '削除できませんでした。')
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              削除する
+            </button>
+          </footer>
         </TakeoffDialog>
       )}
       {remove && (

@@ -1083,3 +1083,10 @@
   height: 6mm;
   min-height: 0;
 }
+
+.catalog-option-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 12px;
+}

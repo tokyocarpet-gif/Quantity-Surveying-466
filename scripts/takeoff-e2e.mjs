@@ -228,7 +228,7 @@ async function exerciseMouseAndMasters(page) {
   await page.getByRole('button', { name: '幅に合わせる', exact: true }).click()
   await expect(page.locator('.pdf-scroll')).toHaveAttribute('aria-busy', 'false')
 
-  await page.getByRole('button', { name: '仕上げ材マスタ', exact: true }).click()
+  await page.getByRole('button', { name: 'マスタ管理', exact: true }).click()
   await page.getByRole('button', { name: '共通から選ぶ', exact: true }).click()
   await expect(page.locator('.master-list .master-row small')).toHaveText([
     '天井',

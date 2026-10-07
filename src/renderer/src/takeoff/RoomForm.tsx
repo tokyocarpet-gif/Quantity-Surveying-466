@@ -233,7 +233,7 @@ export function RoomForm({
           ))}
         </div>
         <button type="button" className="secondary wide" onClick={openMaterials}>
-          仕上げ材マスタを開く
+          マスタ管理を開く
         </button>
         {availableCategories
           .filter((c) => enabled.includes(c))

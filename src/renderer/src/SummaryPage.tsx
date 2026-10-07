@@ -508,9 +508,9 @@ export function SummaryPage(): React.JSX.Element {
         <TakeoffDialog title="Excel内訳書を出力" close={() => setExcelOpen(false)} busy={exporting}>
           <div className="preview-body">
             <p>
-              元の基本見積もり書を複製し、内訳書へ転記します。表紙・内訳書・マスタの3シートと、内訳10ページ分の空欄行・書式を残します。
+              元の基本見積もり書を複製し、内訳書へ転記します。表紙・内訳書・マスタの3シートと、内訳6ページ分の空欄行・書式を残します。
             </p>
-            <p>長い仕様は次の行へ続け、10ページを超える場合だけ同じ枠のページを追加します。</p>
+            <p>長い仕様は次の行へ続け、6ページを超える場合だけ同じ枠のページを追加します。</p>
             <p>対象：{summaryScope(report)}</p>
             <label>
               大項目

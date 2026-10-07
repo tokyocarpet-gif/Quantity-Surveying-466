@@ -17,7 +17,6 @@ import {
   FileText,
   Folder,
   FolderOpen,
-  HardDrive,
   LayoutGrid,
   LoaderCircle,
   MoreHorizontal,
@@ -234,7 +233,7 @@ export function App(): React.JSX.Element {
     <>
       <div className="page-top">
         <div>
-          <div className="eyebrow">{project ? 'PROJECT / 図面管理' : 'WORKSPACE / 案件管理'}</div>
+          <div className="eyebrow">{project ? 'PROJECT / 図面管理' : '案件管理'}</div>
           <h1>
             {project ? project.name : client ? client.name : 'すべての案件'}
             {project && (
@@ -257,7 +256,7 @@ export function App(): React.JSX.Element {
                 数量集計
               </button>
               <button className="secondary" onClick={() => setMasterProject({ id: project.id })}>
-                仕上げ材マスタ
+                マスタ管理
               </button>
               <button className="secondary" onClick={() => setModal({ type: 'project', project })}>
                 <Pencil size={16} />
@@ -601,7 +600,6 @@ export function App(): React.JSX.Element {
             積算管理<small>SEKISAN KANRI</small>
           </span>
         </button>
-        <div className="workspace-label">ワークスペース</div>
         <button
           className={`nav-item ${!selection.clientId ? 'selected' : ''}`}
           disabled={busy}
@@ -646,18 +644,6 @@ export function App(): React.JSX.Element {
           )}
         </div>
         <div className="sidebar-bottom">
-          <div className="backup-tip">
-            <HardDrive size={19} />
-            <strong>大切なデータを手元に</strong>
-            <p>
-              図面と案件をまとめて
-              <br />
-              バックアップできます。
-            </p>
-            <button onClick={() => setModal({ type: 'settings' })}>
-              バックアップを管理 <ChevronRight size={14} />
-            </button>
-          </div>
           <button className="nav-item" onClick={() => setModal({ type: 'settings' })}>
             <Settings2 size={18} />
             <span>設定・データ管理</span>
@@ -670,16 +656,10 @@ export function App(): React.JSX.Element {
       <div className="main-shell">
         <header className="topbar">
           <nav aria-label="パンくず">
-            <button disabled={busy} onClick={() => void run(() => choose(null))}>
-              ワークスペース
-            </button>
             {client && (
-              <>
-                <ChevronRight size={13} />
-                <button disabled={busy} onClick={() => void run(() => choose(client.id))}>
-                  {client.name}
-                </button>
-              </>
+              <button disabled={busy} onClick={() => void run(() => choose(client.id))}>
+                {client.name}
+              </button>
             )}
             {project && (
               <>
@@ -774,7 +754,7 @@ export function App(): React.JSX.Element {
                   setMasterProject({ id: null })
                 }}
               >
-                共通の仕上げ材マスタ
+                マスタ管理
               </button>
               <div className="settings-intro">
                 <ShieldCheck size={25} />

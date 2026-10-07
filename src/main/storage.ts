@@ -19,6 +19,7 @@ import {
   saveCompany,
   addCatalogOption,
   renameCatalogOption,
+  deleteCatalogOption,
   validateBusinessData
 } from './business-storage'
 import {
@@ -198,6 +199,9 @@ export class Storage {
   }
   addCatalogOption(input: unknown) {
     return addCatalogOption(this.db, input)
+  }
+  deleteCatalogOption(input: unknown) {
+    return deleteCatalogOption(this.db, input)
   }
   renameCatalogOption(input: unknown) {
     return renameCatalogOption(this.db, input)

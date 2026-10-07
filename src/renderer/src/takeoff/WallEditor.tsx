@@ -402,7 +402,7 @@ export function WallEditor({
                       </select>
                     </label>
                     <button className="secondary" onClick={() => setMaster(true)}>
-                      仕上げ材マスタを開く
+                      マスタ管理を開く
                     </button>
                     <label>
                       クロス名
