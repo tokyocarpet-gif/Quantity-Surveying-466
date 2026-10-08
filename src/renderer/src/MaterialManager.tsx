@@ -14,6 +14,7 @@ import {
 } from '../../shared/materials'
 import { TakeoffDialog, quantityText } from './takeoff/Dialogs'
 import { unwrap } from './store'
+import { errorMessage } from './error-message'
 
 /** Enter advances single-line fields; Tab and select/IME controls keep their native behavior. */
 function advanceMaterialField(event: KeyboardEvent<HTMLFormElement>): void {
@@ -348,7 +349,7 @@ export function MaterialManager({
                   input
                 })
               } catch (e) {
-                setError(e instanceof Error ? e.message : '入力を確認してください。')
+                setError(errorMessage(e, '入力を確認してください。'))
               }
             }}
           >

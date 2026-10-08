@@ -1,5 +1,4 @@
-.app-shell:has(.estimate-page) > .sidebar,
-.main-shell:has(.estimate-page) > .topbar {
+.app-shell:has(.estimate-page) > .sidebar {
   display: none;
 }
 .estimate-page {

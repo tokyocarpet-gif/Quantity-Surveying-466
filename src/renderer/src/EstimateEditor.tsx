@@ -39,6 +39,7 @@ import { EstimateIssuerDialog } from './EstimateIssuerDialog'
 import { TakeoffDialog } from './takeoff/Dialogs'
 import { MaterialManager } from './MaterialManager'
 import { unwrap } from './store'
+import { errorMessage } from './error-message'
 
 function PaperCell({
   data,
@@ -452,7 +453,7 @@ export function EstimateEditor(): React.JSX.Element {
     } catch (e) {
       invalidDraft.current = true
       setInvalid(true)
-      setError(e instanceof Error ? e.message : '入力内容を確認してください。')
+      setError(errorMessage(e, '入力内容を確認してください。'))
       return false
     }
   }
@@ -592,7 +593,7 @@ export function EstimateEditor(): React.JSX.Element {
       setNotice('貼り付けました。金額列は数量×単価で再計算します。')
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : '貼り付けできませんでした。')
+      setError(errorMessage(e, '貼り付けできませんでした。'))
       return false
     }
   }
@@ -746,7 +747,7 @@ export function EstimateEditor(): React.JSX.Element {
         setNotice('この内訳明細書は23行までです。「内訳明細書を追加」から追加してください。')
       }
     } catch (e) {
-      return (e as Error).message
+      return errorMessage(e, '入力内容を確認してください。')
     }
   }
   const draftIds = rowDraft
@@ -1472,7 +1473,7 @@ export function EstimateEditor(): React.JSX.Element {
                 if (index >= 0) setPage(index)
               } else setCoverDraft(null)
             } catch (e) {
-              return e instanceof Error ? e.message : '入力内容を確認してください。'
+              return errorMessage(e, '入力内容を確認してください。')
             }
           }}
         />

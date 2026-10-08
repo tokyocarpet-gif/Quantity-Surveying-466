@@ -4,6 +4,7 @@ import { TakeoffDialog } from './takeoff/Dialogs'
 import { CompanyFields, advanceCompanyField } from './CompanyFields'
 import { CompanyBlock, companyBlockCss } from '../../shared/CompanyBlock'
 import { unwrap } from './store'
+import { errorMessage } from './error-message'
 export function CompanyDialog({ close }: { close: () => void }): React.JSX.Element {
   const [value, setValue] = useState<Company>(emptyCompany()),
     [busy, setBusy] = useState(true),
@@ -59,7 +60,7 @@ export function CompanyDialog({ close }: { close: () => void }): React.JSX.Eleme
             setValue(await unwrap(window.sekisan.saveCompany(companySchema.parse(value))))
             setNotice('自社情報を保存しました。')
           } catch (e) {
-            setError(e instanceof Error ? e.message : '保存できませんでした。')
+            setError(errorMessage(e, '保存できませんでした。'))
           } finally {
             setBusy(false)
           }

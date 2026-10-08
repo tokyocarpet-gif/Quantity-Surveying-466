@@ -287,6 +287,7 @@ async function createWindow(): Promise<void> {
       webviewTag: false
     }
   })
+  if (process.platform !== 'darwin') window.setMenuBarVisibility(false)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.on('close', (event) => {

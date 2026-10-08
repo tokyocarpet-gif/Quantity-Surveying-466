@@ -9,6 +9,7 @@ import { CompanyBlock, companyBlockCss } from '../../shared/CompanyBlock'
 import { CompanyFields, advanceCompanyField } from './CompanyFields'
 import { TakeoffDialog } from './takeoff/Dialogs'
 import { unwrap } from './store'
+import { errorMessage } from './error-message'
 export function EstimateIssuerDialog({
   initial,
   close,
@@ -33,7 +34,7 @@ export function EstimateIssuerDialog({
             if (companyIssuer(parsed).length > 1600) throw new Error('会社情報が長すぎます。')
             apply(parsed)
           } catch (e) {
-            setError(e instanceof Error ? e.message : '入力内容を確認してください。')
+            setError(errorMessage(e, '入力内容を確認してください。'))
           }
         }}
       >

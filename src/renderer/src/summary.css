@@ -1,5 +1,4 @@
-.app-shell:has(.summary-page) > .sidebar,
-.main-shell:has(.summary-page) > .topbar {
+.app-shell:has(.summary-page) > .sidebar {
   display: none;
 }
 .summary-page {

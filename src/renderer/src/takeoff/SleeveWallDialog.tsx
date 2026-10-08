@@ -7,6 +7,7 @@ import {
   type SleeveWall
 } from '../../../shared/takeoff'
 import { quantityText, TakeoffDialog } from './Dialogs'
+import { errorMessage } from '../error-message'
 export function SleeveWallDialog({
   room,
   wall,
@@ -49,7 +50,7 @@ export function SleeveWallDialog({
               })
             )
           } catch (e) {
-            setValidation(e instanceof Error ? e.message : '入力を確認してください。')
+            setValidation(errorMessage(e, '入力を確認してください。'))
           }
         }}
       >

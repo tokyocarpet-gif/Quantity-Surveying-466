@@ -274,54 +274,6 @@ small {
   display: flex;
   flex-direction: column;
 }
-.topbar {
-  height: 65px;
-  min-height: 65px;
-  border-bottom: 1px solid var(--border);
-  background: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 38px;
-  gap: 20px;
-}
-.topbar nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: #9aa4ac;
-  font-size: 11px;
-  min-width: 0;
-}
-.topbar nav button,
-.topbar nav span {
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 260px;
-  padding: 0;
-}
-.topbar nav span {
-  color: #53616b;
-}
-.save-state {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 10px;
-  color: #83918b;
-  white-space: nowrap;
-}
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #6aa68a;
-}
-.save-state.saving {
-  color: #53877b;
-}
 .page {
   padding: 38px 40px 22px;
   overflow-y: auto;
@@ -1101,9 +1053,6 @@ small {
   }
   .page {
     padding: 28px 26px;
-  }
-  .topbar {
-    padding: 0 26px;
   }
   .page-top {
     gap: 15px;

@@ -654,25 +654,6 @@ export function App(): React.JSX.Element {
         </div>
       </aside>
       <div className="main-shell">
-        <header className="topbar">
-          <nav aria-label="パンくず">
-            {client && (
-              <button disabled={busy} onClick={() => void run(() => choose(client.id))}>
-                {client.name}
-              </button>
-            )}
-            {project && (
-              <>
-                <ChevronRight size={13} />
-                <span>{project.name}</span>
-              </>
-            )}
-          </nav>
-          <span className={`save-state ${busy ? 'saving' : ''}`}>
-            {busy ? <LoaderCircle size={14} className="spin" /> : <span className="status-dot" />}
-            {busy ? '処理中…' : 'ローカル保存'}
-          </span>
-        </header>
         {error && !modal && (
           <div className="alert" role="alert">
             <span>{error}</span>

@@ -15,6 +15,7 @@ import {
 } from '../../../shared/takeoff'
 import { materialSpecification, type Material } from '../../../shared/materials'
 import { quantityText } from './Dialogs'
+import { errorMessage } from '../error-message'
 export function RoomForm({
   room,
   geometryType = room?.geometryType,
@@ -98,7 +99,7 @@ export function RoomForm({
           )
           save(input)
         } catch (e) {
-          setError(e instanceof Error ? e.message : '入力を確認してください。')
+          setError(errorMessage(e, '入力を確認してください。'))
         }
       }}
     >

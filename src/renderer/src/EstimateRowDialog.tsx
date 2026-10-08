@@ -9,6 +9,7 @@ import { parseEstimateValue } from '../../shared/estimate-edit'
 import { partLabel, materialSpecification, type MaterialContext } from '../../shared/materials'
 import { estimateMoney } from '../../shared/EstimateDocument'
 import { TakeoffDialog } from './takeoff/Dialogs'
+import { errorMessage } from './error-message'
 
 export function EstimateRowDialog({
   line,
@@ -69,7 +70,7 @@ export function EstimateRowDialog({
       const failure = apply(converted(), next)
       if (failure) setError(failure)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '入力内容を確認してください。')
+      setError(errorMessage(e, '入力内容を確認してください。'))
     }
   }
   const field = (key: string, label: string, list?: string) => (

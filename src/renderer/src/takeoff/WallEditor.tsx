@@ -15,6 +15,7 @@ import {
 import { WallElevation } from '../../../shared/WallElevation'
 import type { Material } from '../../../shared/materials'
 import { unwrap } from '../store'
+import { errorMessage } from '../error-message'
 import { WallpaperFields, emptyWallpaper } from '../WallpaperFields'
 import { MaterialManager } from '../MaterialManager'
 import { WallPdfDialog, WallBatchPdfDialog } from '../EstimatePdfDialog'
@@ -123,11 +124,7 @@ export function WallEditor({
     try {
       result = computeWall(body)
     } catch (e) {
-      invalid = e instanceof Error ? e.message : '寸法を確認してください。'
-      try {
-        const issues = JSON.parse(invalid)
-        invalid = issues.map((i: any) => i.message).join(' ／ ')
-      } catch {}
+      invalid = errorMessage(e, '寸法を確認してください。')
     }
   }
   const room = state.rooms.find((r) => r.id === roomId)

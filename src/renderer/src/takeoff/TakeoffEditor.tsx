@@ -42,6 +42,7 @@ import {
   type TakeoffPreview
 } from '../../../shared/takeoff'
 import { unwrap } from '../store'
+import { errorMessage } from '../error-message'
 import { PdfPage, type PdfView } from './PdfPage'
 import { PreviewDialog, quantityText, scaleText, TakeoffDialog } from './Dialogs'
 import { SleeveWallDialog } from './SleeveWallDialog'
@@ -248,7 +249,7 @@ export function TakeoffEditor({
       setError('')
     } catch (e) {
       setError(
-        `${e instanceof Error ? e.message : '形状を確認してください。'} ${geometryType === 'wall-line' ? '壁の始点・角・終点を指定し、線を閉じずに確定してください。' : '袖壁の往復線は輪郭に含めず、外周で部屋を登録してから「袖壁」で追加してください。'}`
+        `${errorMessage(e, '形状を確認してください。')} ${geometryType === 'wall-line' ? '壁の始点・角・終点を指定し、線を閉じずに確定してください。' : '袖壁の往復線は輪郭に含めず、外周で部屋を登録してから「袖壁」で追加してください。'}`
       )
     }
   }

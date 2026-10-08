@@ -1,5 +1,4 @@
-.app-shell:has(.layout-screen) > .sidebar,
-.main-shell:has(.layout-screen) > .topbar {
+.app-shell:has(.layout-screen) > .sidebar {
   display: none;
 }
 .layout-screen {

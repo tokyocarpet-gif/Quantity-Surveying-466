@@ -1,5 +1,4 @@
-.app-shell:has(.takeoff-viewer) > .sidebar,
-.main-shell:has(.takeoff-viewer) > .topbar {
+.app-shell:has(.takeoff-viewer) > .sidebar {
   display: none;
 }
 .takeoff-viewer {

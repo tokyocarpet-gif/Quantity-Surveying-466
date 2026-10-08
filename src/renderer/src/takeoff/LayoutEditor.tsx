@@ -18,6 +18,7 @@ import { materialSpecification, type MaterialContext } from '../../../shared/mat
 import { MaterialInput } from '../MaterialInput'
 import { MaterialManager } from '../MaterialManager'
 import { unwrap } from '../store'
+import { errorMessage } from '../error-message'
 import { PdfPage } from './PdfPage'
 import { LayoutBoundaryDrawing } from './LayoutBoundaryDrawing'
 import { TakeoffDialog } from './Dialogs'
@@ -181,7 +182,7 @@ export function LayoutEditor({
       return {
         result: null,
         body: null,
-        error: e instanceof Error ? e.message : '寸法を確認してください。'
+        error: errorMessage(e, '寸法を確認してください。')
       }
     }
   }, [polygon, scale, body])
@@ -213,7 +214,7 @@ export function LayoutEditor({
         '割り付け範囲を変更しました。基準壁・移動量をリセットしました。「割り付けを保存」で確定します。'
       )
     } catch (e) {
-      setError(e instanceof Error ? e.message : '範囲を確認してください。')
+      setError(errorMessage(e, '範囲を確認してください。'))
     }
   }
   const nudge = (x: number, y: number): void =>
