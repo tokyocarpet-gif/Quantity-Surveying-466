@@ -46,6 +46,26 @@ export const layoutBodySchema = z
     maxWidthMm: z.number().finite().min(10).max(10000).nullable().default(null),
     layoutType: layoutTypeSchema.default('tile'),
     reorderCuts: z.boolean().default(false),
+    // Missing fields preserve saved layouts created before automatic joins existed.
+    autoRollSeams: z.boolean().default(false),
+    rollSeamSource: z.string().max(120000).default(''),
+    rollSeams: z
+      .array(
+        z
+          .object({
+            column: z.number().int().min(-10000000).max(10000000),
+            positionsMm: z.array(z.number().finite().positive().max(1e9)).max(1999)
+          })
+          .strict()
+      )
+      .max(2000)
+      .default([])
+      .refine(
+        (rows) =>
+          new Set(rows.map((r) => r.column)).size === rows.length &&
+          rows.reduce((sum, r) => sum + r.positionsMm.length, 0) <= 1999,
+        '継ぎ位置の重複または件数を確認してください。'
+      ),
     trimMm: z.number().finite().min(0).max(1000).default(0),
     materialId: idSchema.nullable(),
     materialName: z.string().trim().max(120),
@@ -105,6 +125,9 @@ export const defaultLayout = (): LayoutBody => ({
   rollCutMode: 'width',
   maxWidthMm: null,
   reorderCuts: false,
+  autoRollSeams: true,
+  rollSeamSource: '',
+  rollSeams: [],
   layoutType: 'tile',
   trimMm: 0,
   materialId: null,
@@ -153,6 +176,28 @@ export function rollMaterialRows(
     rows.set(key, row)
   }
   return [...rows.values()]
+}
+/** Store all current joins together so adjusting one lane never moves another. */
+export function adjustRollSeam(
+  roll: NonNullable<ReturnType<typeof computeLayout>['roll']>,
+  column: number,
+  index: number,
+  positionMm: number
+): Pick<LayoutBody, 'rollSeamSource' | 'rollSeams'> {
+  const seam = roll.seams.find((s) => s.column === column && s.index === index)
+  if (!seam || !Number.isFinite(positionMm) || positionMm < seam.minMm || positionMm > seam.maxMm)
+    throw new Error('継ぎ位置は帯の端と隣の継ぎ位置の間に指定してください。')
+  return {
+    rollSeamSource: roll.seamSource,
+    rollSeams: roll.lanes
+      .filter((lane) => lane.positionsMm.length)
+      .map((lane) => ({
+        column: lane.column,
+        positionsMm: lane.positionsMm.map((p, i) =>
+          lane.column === column && i === index ? positionMm : p
+        )
+      }))
+  }
 }
 export const rotate = (p: Point, angle: number): Point => ({
   x: p.x * Math.cos(angle) - p.y * Math.sin(angle),
@@ -442,6 +487,7 @@ function computeRoll(
     throw new Error('シートが2,000枚を超えます。ロール幅・縮尺を確認してください。')
   const strips: {
     number: number
+    lane: number
     widthMm: number
     lengthMm: number
     cutLengthMm: number
@@ -453,6 +499,30 @@ function computeRoll(
     from: Point
     to: Point
   }[] = []
+  const seamSource = JSON.stringify({
+    local,
+    startX,
+    width: b.widthMm,
+    stock: b.heightMm,
+    trim: b.trimMm
+  })
+  const manual = b.rollSeamSource === seamSource ? b.rollSeams : []
+  const seams: {
+    column: number
+    lane: number
+    index: number
+    positionMm: number
+    minMm: number
+    maxMm: number
+    from: Point
+    to: Point
+  }[] = []
+  const lanes: { column: number; number: number; positionsMm: number[] }[] = []
+  const usableLength = b.heightMm === null ? null : Math.floor(b.heightMm) - b.trimMm * 2
+  if (b.autoRollSeams && usableLength !== null && usableLength < 1)
+    throw new Error(
+      '最大出荷Lから両端の切りしろを引くと1mm未満になります。最大出荷L・切りしろを確認してください。'
+    )
   const tiles: { polygon: Point[]; full: boolean; areaMm2: number }[] = []
   for (let c = left; c < right; c++) {
     const x = startX + c * b.widthMm
@@ -460,37 +530,79 @@ function computeRoll(
     const amount = area(clipped)
     if (amount <= Math.max(0.001, area(local) * 1e-12)) continue
     const { fromY, toY } = stripExtent(local, x, x + b.widthMm)
-    const lengthMm = toY - fromY
-    // Whole-millimetre cutting lengths never round the required material down.
-    const cutLengthMm = Math.ceil(lengthMm + b.trimMm * 2 - 1e-7)
-    const overLength = b.heightMm !== null && cutLengthMm > b.heightMm + 1e-7
-    const visibleX =
-      (Math.min(...clipped.map((p) => p.x)) + Math.max(...clipped.map((p) => p.x))) / 2
-    const actualWidth = Math.max(...clipped.map((p) => p.x)) - Math.min(...clipped.map((p) => p.x))
-    const free = b.layoutType === 'carpet' && b.rollCutMode === 'free'
-    strips.push({
-      number: strips.length + 1,
-      widthMm: actualWidth,
-      cutWidthMm: free ? Math.ceil(actualWidth - 1e-7) : (b.maxWidthMm ?? b.widthMm),
-      lengthMm,
-      cutLengthMm,
-      overLength,
-      rollNumber: null,
-      cutOrder: strips.length + 1,
-      center: toPage({ x: visibleX, y: (fromY + toY) / 2 }),
-      from: toPage({ x: visibleX, y: fromY }),
-      to: toPage({ x: visibleX, y: toY })
-    })
-    tiles.push({
-      polygon: [
-        { x, y: fromY },
-        { x: x + b.widthMm, y: fromY },
-        { x: x + b.widthMm, y: toY },
-        { x, y: toY }
-      ].map(toPage),
-      full: false,
-      areaMm2: amount
-    })
+    const laneLength = toY - fromY
+    let positionsMm: number[] = []
+    if (b.autoRollSeams && usableLength !== null) {
+      const override = manual.find((row) => row.column === c)
+      if (override) positionsMm = override.positionsMm
+      else {
+        const pieces = Math.ceil((laneLength - 1e-7) / usableLength)
+        if (strips.length + pieces > 2000)
+          throw new Error(
+            '継ぎ足し後のシートが2,000枚を超えます。最大出荷L・縮尺を確認してください。'
+          )
+        positionsMm = Array.from({ length: pieces - 1 }, (_, i) => (i + 1) * usableLength)
+      }
+    }
+    if (positionsMm.some((p, i) => p <= (positionsMm[i - 1] ?? 0) + 1e-7 || p >= laneLength - 1e-7))
+      throw new Error('継ぎ位置は帯の端と隣の継ぎ位置の間に指定してください。')
+    if (strips.length + positionsMm.length + 1 > 2000)
+      throw new Error('継ぎ足し後のシートが2,000枚を超えます。最大出荷L・縮尺を確認してください。')
+    const lane = lanes.length + 1
+    lanes.push({ column: c, number: lane, positionsMm })
+    positionsMm.forEach((positionMm, index) =>
+      seams.push({
+        column: c,
+        lane,
+        index,
+        positionMm,
+        minMm: (positionsMm[index - 1] ?? 0) + 0.01,
+        maxMm: (positionsMm[index + 1] ?? laneLength) - 0.01,
+        from: toPage({ x, y: fromY + positionMm }),
+        to: toPage({ x: x + b.widthMm, y: fromY + positionMm })
+      })
+    )
+    const bounds = [0, ...positionsMm, laneLength]
+    for (let piece = 0; piece < bounds.length - 1; piece++) {
+      const pieceFrom = fromY + bounds[piece],
+        pieceTo = fromY + bounds[piece + 1]
+      const piecePolygon = clipRect(local, x, pieceFrom, b.widthMm, pieceTo - pieceFrom)
+      const pieceArea = area(piecePolygon)
+      if (pieceArea <= Math.max(0.001, area(local) * 1e-12)) continue
+      const lengthMm = pieceTo - pieceFrom
+      // Whole-millimetre cutting lengths never round the required material down.
+      const cutLengthMm = Math.ceil(lengthMm + b.trimMm * 2 - 1e-7)
+      const overLength = b.heightMm !== null && cutLengthMm > b.heightMm + 1e-7
+      const visibleX =
+        (Math.min(...piecePolygon.map((p) => p.x)) + Math.max(...piecePolygon.map((p) => p.x))) / 2
+      const actualWidth =
+        Math.max(...piecePolygon.map((p) => p.x)) - Math.min(...piecePolygon.map((p) => p.x))
+      const free = b.layoutType === 'carpet' && b.rollCutMode === 'free'
+      strips.push({
+        number: strips.length + 1,
+        lane,
+        widthMm: actualWidth,
+        cutWidthMm: free ? Math.ceil(actualWidth - 1e-7) : (b.maxWidthMm ?? b.widthMm),
+        lengthMm,
+        cutLengthMm,
+        overLength,
+        rollNumber: null,
+        cutOrder: strips.length + 1,
+        center: toPage({ x: visibleX, y: (pieceFrom + pieceTo) / 2 }),
+        from: toPage({ x: visibleX, y: pieceFrom }),
+        to: toPage({ x: visibleX, y: pieceTo })
+      })
+      tiles.push({
+        polygon: [
+          { x, y: pieceFrom },
+          { x: x + b.widthMm, y: pieceFrom },
+          { x: x + b.widthMm, y: pieceTo },
+          { x, y: pieceTo }
+        ].map(toPage),
+        full: false,
+        areaMm2: pieceArea
+      })
+    }
   }
   const lengthMm = strips.reduce((sum, s) => sum + s.cutLengthMm, 0)
   const overLength = strips.some((s) => s.overLength)
@@ -513,6 +625,10 @@ function computeRoll(
     anchor,
     roll: {
       strips,
+      seams,
+      lanes,
+      seamSource,
+      staleSeams: b.rollSeams.length > 0 && b.rollSeamSource !== seamSource,
       lengthM: lengthMm / 1000,
       requiredArea: strips.reduce((sum, s) => sum + s.cutWidthMm * s.cutLengthMm, 0) / 1e6,
       freeCut,

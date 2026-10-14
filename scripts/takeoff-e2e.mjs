@@ -241,9 +241,51 @@ async function exerciseMouseAndMasters(page) {
     '床',
     '床'
   ])
+  const partTab = (name) => page.getByRole('tab', { name, exact: true })
+  const selectVisible = page.getByRole('checkbox', {
+    name: '表示中の材料をすべて選択',
+    exact: true
+  })
+  await partTab('床').click()
+  await expect(page.locator('.master-list .master-row small')).toHaveText(['床', '床', '床'])
   await page.getByRole('checkbox', { name: '床・タイルカーペットを選択', exact: true }).check()
+  await partTab('壁').click()
+  await expect(page.locator('.master-list .master-row small')).toHaveText(['壁', '壁'])
+  await selectVisible.check()
+  await expect(
+    page.getByRole('button', { name: '選択した3件を物件へ取り込む', exact: true })
+  ).toBeEnabled()
+  await selectVisible.uncheck()
+  await expect(
+    page.getByRole('button', { name: '選択した1件を物件へ取り込む', exact: true })
+  ).toBeEnabled()
   await page.getByRole('checkbox', { name: '壁・塗装を選択', exact: true }).check()
+  await partTab('床').click()
+  await expect(
+    page.getByRole('checkbox', { name: '床・タイルカーペットを選択', exact: true })
+  ).toBeChecked()
+  const materialSearch = page.getByRole('textbox', { name: '仕上げ材を検索', exact: true })
+  await materialSearch.fill('該当しない材料')
+  await expect(page.locator('.master-list .master-row')).toHaveCount(0)
+  await expect(selectVisible).toBeDisabled()
+  await expect(
+    page.getByRole('button', { name: '選択した2件を物件へ取り込む', exact: true })
+  ).toBeEnabled()
+  await materialSearch.fill('')
+  await partTab('床').press('Home')
+  await expect(partTab('すべて')).toHaveAttribute('aria-selected', 'true')
+  await partTab('すべて').press('ArrowRight')
+  await expect(partTab('天井')).toHaveAttribute('aria-selected', 'true')
+  await partTab('床').click()
+  await page.screenshot({ path: 'test-results/material-import-part-tabs.png' })
   await page.getByRole('button', { name: '選択した2件を物件へ取り込む', exact: true }).click()
+  await page.getByRole('button', { name: '共通から選ぶ', exact: true }).click()
+  await expect(partTab('すべて')).toHaveAttribute('aria-selected', 'true')
+  await partTab('床').click()
+  await expect(
+    page.getByRole('checkbox', { name: '床・タイルカーペットを選択', exact: true })
+  ).toBeDisabled()
+  await page.getByRole('button', { name: '取り込みをやめる', exact: true }).click()
   await page.getByRole('button', { name: '床・タイルカーペットを編集', exact: true }).click()
   await page.getByRole('spinbutton', { name: '材料の単価', exact: true }).fill('5100')
   await page.getByRole('button', { name: '材料を保存', exact: true }).click()

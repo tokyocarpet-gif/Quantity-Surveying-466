@@ -59,6 +59,7 @@ export function layoutPrintHtml(report: Report): string {
     <p class="metrics">${body.customPolygon ? '割り付け面積' : '部屋面積'} ${area(result.roomArea)} ㎡ ／ ${metrics}</p>
     <p class="note">図面は実測W・Lを表示。用紙に合わせて拡大・縮小しているため、記載寸法を参照してください。</p>
     ${roll?.overLength ? '<p class="warning">最大出荷Lを超えるシートがあります。使用寸法を確認してください。</p>' : ''}
+    ${roll?.seams.length ? `<p class="note">ピンクの破線は仮の継ぎ位置（${roll.seams.length}か所）です。出入口・柄合わせ・重ね代などを確認して確定してください。</p>` : ''}
     <section class="details"><h1>割り付け・使用材料内訳</h1><div class="metadata">${metadata}</div><p class="source">${source} ／ ${status}</p>
     <div class="conditions">材料：${text(body.materialName || '未設定')} ／ ${text(layoutTypeLabels[body.layoutType])}\n仕様・規格：${text(body.specification || '未設定')}
     ${roll ? `\n出荷方法：${roll.freeCut ? 'フリーカット' : '幅なり出荷'} ／ 最大出荷 W ${dimension(roll.maxWidthMm, 'W')} ／ L ${body.heightMm === null ? '未設定' : dimension(body.heightMm)}\n割付W ${dimension(body.widthMm, 'W')} ／ 切りしろ 両端各 ${body.trimMm} mm` : ''}

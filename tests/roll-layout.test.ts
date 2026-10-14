@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 import { PDFDocument } from 'pdf-lib'
 import {
   computeLayout,
+  adjustRollSeam,
   defaultLayout,
   layoutBodySchema,
   layoutSourceKey
@@ -54,8 +55,16 @@ test('ロール幅で敷き並べ、両端切りしろを含む延長・面積�
     [1, 2, 3]
   )
   const over = computeLayout(rectangle(4000, 6000), 0.001, { ...body(), heightMm: 6000 }).roll!
-  assert.equal(over.rollCount, null)
-  assert.ok(over.strips.every((s) => s.overLength))
+  assert.equal(over.strips.length, 6)
+  assert.equal(over.seams.length, 3)
+  assert.ok(over.strips.every((s) => !s.overLength))
+  const legacy = computeLayout(rectangle(4000, 6000), 0.001, {
+    ...body(),
+    heightMm: 6000,
+    autoRollSeams: false
+  }).roll!
+  assert.equal(legacy.rollCount, null)
+  assert.ok(legacy.strips.every((s) => s.overLength))
 })
 test('巻き長さ未設定でも拾え、方向・継ぎ目・切りしろで必要量が変わる', () => {
   const p = rectangle(4000, 6000)
@@ -223,19 +232,25 @@ test('ロール材の取り込み・配置・バックアップ復元を保持�
     const material = s.readMaterials(project.id).project[0]
     assert.equal(material.layoutType, 'carpet')
     assert.match(materialSpecification(material), /L 30,000 mm/)
+    const rollBody = layoutBodySchema.parse({
+      ...body(),
+      layoutType: 'carpet',
+      heightMm: 3000,
+      materialId: material.id,
+      reorderCuts: true,
+      rollCutMode: 'free',
+      maxWidthMm: 3640
+    })
+    const automatic = computeLayout(polygon, 0.01, rollBody).roll!
+    const adjusted = {
+      ...rollBody,
+      ...adjustRollSeam(automatic, automatic.seams[0].column, 0, 2000)
+    }
     const saved = s.saveLayout({
       roomId,
       expectedRevision: 0,
       sourceKey: layoutSourceKey(polygon, 0.01),
-      body: {
-        ...body(),
-        layoutType: 'carpet',
-        heightMm: null,
-        materialId: material.id,
-        reorderCuts: true,
-        rollCutMode: 'free',
-        maxWidthMm: 3640
-      }
+      body: adjusted
     })
     const backup = join(root, 'roll.sekisan-backup')
     await s.createBackup(backup)
@@ -246,9 +261,21 @@ test('ロール材の取り込み・配置・バックアップ復元を保持�
     s.close()
     const reopened = new Storage(join(root, 'app'))
     assert.deepEqual(reopened.readLayout(roomId), saved)
+    assert.equal(
+      computeLayout(polygon, 0.01, reopened.readLayout(roomId)!.body).roll!.seams[0].positionMm,
+      2000
+    )
     reopened.close()
     const legacy = new Database(join(root, 'app/data/db/sekisan-kanri.db'))
-    const { reorderCuts, maxWidthMm, rollCutMode, ...oldBody } = saved.body
+    const {
+      reorderCuts,
+      maxWidthMm,
+      rollCutMode,
+      autoRollSeams,
+      rollSeamSource,
+      rollSeams,
+      ...oldBody
+    } = saved.body
     legacy
       .prepare('UPDATE room_layouts SET body=? WHERE roomId=?')
       .run(JSON.stringify(oldBody), roomId)
@@ -262,6 +289,8 @@ test('ロール材の取り込み・配置・バックアップ復元を保持�
       assert.equal(migrated.readLayout(roomId)!.body.reorderCuts, false)
       assert.equal(migrated.readLayout(roomId)!.body.rollCutMode, 'width')
       assert.equal(migrated.readLayout(roomId)!.body.maxWidthMm, null)
+      assert.equal(migrated.readLayout(roomId)!.body.autoRollSeams, false)
+      assert.deepEqual(migrated.readLayout(roomId)!.body.rollSeams, [])
       const check = new Database(join(root, 'app/data/db/sekisan-kanri.db'))
       assert.equal(check.pragma('user_version', { simple: true }), 21)
       assert.deepEqual(check.prepare('SELECT * FROM room_layouts ORDER BY roomId').all(), rows)

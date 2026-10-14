@@ -2,7 +2,7 @@ import { builtinCatalogValues } from '../../shared/business'
 import { WallpaperMasterFields } from './WallpaperFields'
 import { layoutTypeLabels } from '../../shared/layout'
 import { TileSizeFields } from './TileSizeFields'
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useState, type KeyboardEvent } from 'react'
 import { categories, categoryLabels, categoryUnits } from '../../shared/takeoff'
 import {
   materialInputSchema,
@@ -53,6 +53,9 @@ export function MaterialManager({
   const [data, setData] = useState<MaterialContext | null>(null)
   const [scope, setScope] = useState<'project' | 'global'>(projectId ? 'project' : 'global')
   const [importing, setImporting] = useState(false)
+  const [importPart, setImportPart] = useState<string | null>(null)
+  const [globalPart, setGlobalPart] = useState<string | null>(null)
+  const partTabsId = useId()
   const [checked, setChecked] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [edit, setEdit] = useState<Material | 'new' | null>(null)
@@ -90,7 +93,7 @@ export function MaterialManager({
       setBusy(false)
     }
   }
-  const list =
+  const searchedList =
     (importing || scope === 'global' ? data?.global : data?.project)?.filter((m) =>
       `${partLabel(m.category)} ${m.name} ${m.specification} ${materialStandard(m)} ${m.unit}`.includes(
         query
@@ -125,6 +128,15 @@ export function MaterialManager({
     ])
   ]
   const imported = new Set(data?.project.map((m) => m.sourceId))
+  const showPartTabs = importing || scope === 'global'
+  const selectedPart = importing ? importPart : globalPart
+  const activePart = selectedPart !== null && parts.includes(selectedPart) ? selectedPart : null
+  const setActivePart = importing ? setImportPart : setGlobalPart
+  const partTabs = [null, ...parts]
+  const list = searchedList.filter(
+    (m) => !showPartTabs || activePart === null || m.category === activePart
+  )
+  const newCategory = scope === 'global' ? (activePart ?? 'floor') : 'floor'
   const available = list.filter((m) => !imported.has(m.id))
   return (
     <TakeoffDialog title="マスタ管理" close={close} busy={busy}>
@@ -202,6 +214,7 @@ export function MaterialManager({
                   disabled={busy}
                   onClick={() => {
                     setImporting(!importing)
+                    setImportPart(null)
                     setChecked([])
                     setQuery('')
                   }}
@@ -210,35 +223,93 @@ export function MaterialManager({
                 </button>
               )}
             </div>
-            {importing && (
-              <div className="master-import">
-                <label>
-                  <input
-                    type="checkbox"
-                    aria-label="表示中の材料をすべて選択"
-                    checked={available.length > 0 && available.every((m) => checked.includes(m.id))}
-                    onChange={(e) =>
-                      setChecked(
-                        e.target.checked
-                          ? [...new Set([...checked, ...available.map((m) => m.id)])]
-                          : checked.filter((id) => !available.some((m) => m.id === id))
-                      )
-                    }
-                  />
-                  表示中をすべて選択
-                </label>
-                <button
-                  className="primary"
-                  disabled={busy || !checked.length}
-                  onClick={() =>
-                    void change({ kind: 'import', projectId: projectId!, ids: checked })
-                  }
-                >
-                  選択した{checked.length}件を物件へ取り込む
-                </button>
+            {showPartTabs && (
+              <div
+                className="master-part-tabs"
+                role="tablist"
+                aria-label={importing ? '取り込む材料の部位' : '共通マスタの部位'}
+                onKeyDown={(event) => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                  const tabs = Array.from(
+                    event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+                  )
+                  const current = tabs.indexOf(event.target as HTMLButtonElement)
+                  if (current < 0) return
+                  event.preventDefault()
+                  const next =
+                    event.key === 'Home'
+                      ? 0
+                      : event.key === 'End'
+                        ? tabs.length - 1
+                        : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) %
+                          tabs.length
+                  tabs[next]?.focus()
+                }}
+              >
+                {partTabs.map((part, index) => (
+                  <button
+                    key={part === null ? 'all' : `part-${part}`}
+                    type="button"
+                    role="tab"
+                    id={`${partTabsId}-tab-${index}`}
+                    aria-controls={`${partTabsId}-materials`}
+                    aria-selected={activePart === part}
+                    aria-label={part === null ? 'すべて' : partLabel(part)}
+                    tabIndex={activePart === part ? 0 : -1}
+                    disabled={busy}
+                    onClick={() => setActivePart(part)}
+                    onFocus={() => setActivePart(part)}
+                  >
+                    {part === null ? 'すべて' : partLabel(part)}
+                    <span className="master-part-count" aria-hidden="true">
+                      {searchedList.filter((m) => part === null || m.category === part).length}
+                    </span>
+                  </button>
+                ))}
               </div>
             )}
-            <div className="master-list">
+            {importing && (
+              <>
+                <p className="panel-description">部位を切り替えても選んだ材料は保持されます。</p>
+                <div className="master-import">
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label="表示中の材料をすべて選択"
+                      disabled={busy || !available.length}
+                      checked={
+                        available.length > 0 && available.every((m) => checked.includes(m.id))
+                      }
+                      onChange={(e) =>
+                        setChecked(
+                          e.target.checked
+                            ? [...new Set([...checked, ...available.map((m) => m.id)])]
+                            : checked.filter((id) => !available.some((m) => m.id === id))
+                        )
+                      }
+                    />
+                    表示中をすべて選択
+                  </label>
+                  <button
+                    className="primary"
+                    disabled={busy || !checked.length}
+                    onClick={() =>
+                      void change({ kind: 'import', projectId: projectId!, ids: checked })
+                    }
+                  >
+                    選択した{checked.length}件を物件へ取り込む
+                  </button>
+                </div>
+              </>
+            )}
+            <div
+              className="master-list"
+              role={showPartTabs ? 'tabpanel' : undefined}
+              id={showPartTabs ? `${partTabsId}-materials` : undefined}
+              aria-labelledby={
+                showPartTabs ? `${partTabsId}-tab-${partTabs.indexOf(activePart)}` : undefined
+              }
+            >
               {list.map((m) => (
                 <div key={m.id} className="master-row">
                   {importing && (
@@ -301,7 +372,9 @@ export function MaterialManager({
               {!list.length && (
                 <p className="panel-empty">
                   {data
-                    ? '材料がありません。共通から選ぶか、材料を追加してください。'
+                    ? showPartTabs
+                      ? 'この条件に合う共通材料はありません。部位や検索条件を変更してください。'
+                      : '材料がありません。共通から選ぶか、材料を追加してください。'
                     : '読み込み中…'}
                 </p>
               )}
@@ -361,7 +434,7 @@ export function MaterialManager({
               <select
                 name="category"
                 aria-label="材料の部位"
-                defaultValue={edit === 'new' ? 'floor' : edit.category}
+                defaultValue={edit === 'new' ? newCategory : edit.category}
                 onChange={(e) => {
                   const unit = e.currentTarget.form?.elements.namedItem(
                     'unit'
@@ -403,7 +476,11 @@ export function MaterialManager({
               <select
                 name="unit"
                 aria-label="材料の単位"
-                defaultValue={edit === 'new' ? '㎡' : edit.unit}
+                defaultValue={
+                  edit === 'new'
+                    ? (categoryUnits[newCategory as keyof typeof categoryUnits] ?? '㎡')
+                    : edit.unit
+                }
               >
                 {units.map((u) => (
                   <option key={u} value={u}>

@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, RotateCcw } from 'lucide-react'
 import {
   computeLayout,
+  adjustRollSeam,
   defaultLayout,
   layoutBodySchema,
   layoutTypeLabels,
@@ -30,7 +31,7 @@ import type { LayoutPdfRequest } from '../../../shared/layout-pdf'
 import '../estimate.css'
 import { DimensionInput } from '../DimensionInput'
 import { dimensionUnit, dimensionLabel } from '../../../shared/roll-dimensions'
-import { RollOverlay, RollResults } from './RollLayoutView'
+import { RollOverlay, RollResults, RollSeams } from './RollLayoutView'
 import './layout.css'
 const shape = (points: Point[]): string => points.map((p) => `${p.x},${p.y}`).join(' ')
 const toDraft = (body: LayoutBody): LayoutDraft => ({
@@ -101,6 +102,8 @@ export function LayoutEditor({
     scale: number
     angle: number
     id: number
+    seam?: { column: number; index: number; positionMm: number; minMm: number; maxMm: number }
+    roll?: NonNullable<ReturnType<typeof computeLayout>['roll']>
   } | null>(null)
   const clipId = useId().replace(/:/g, '')
   const sourceKey = layoutSourceKey(room.polygon, scale)
@@ -204,6 +207,15 @@ export function LayoutEditor({
     setHistory((h) => [...h.slice(-49), body])
     setBody({ ...body, ...update })
     setNotice('')
+  }
+  const moveSeam = (column: number, index: number, value: number | ''): void => {
+    if (value === '' || !computed.result?.roll) return
+    try {
+      change(adjustRollSeam(computed.result.roll, column, index, value))
+      setError('')
+    } catch (e) {
+      setError(errorMessage(e, '継ぎ位置を確認してください。'))
+    }
   }
   function finishBoundary(points: Point[]): void {
     try {
@@ -557,6 +569,59 @@ export function LayoutEditor({
                 最大出荷L内で切出し順を調整
               </label>
             )}
+            {isRoll && (
+              <section className="layout-roll-seams" aria-label="継ぎ足し位置の調整">
+                <h3>継ぎ足し位置（仮）</h3>
+                <label className="layout-dimension-toggle">
+                  <input
+                    type="checkbox"
+                    checked={body.autoRollSeams}
+                    onChange={(e) =>
+                      change({ autoRollSeams: e.target.checked, rollSeams: [], rollSeamSource: '' })
+                    }
+                  />
+                  最大出荷Lで継ぎ位置を自動配置
+                </label>
+                <p>
+                  切りしろを含めて分割します。ピンクの破線をドラッグするか、帯の始端からの寸法で調整できます。出入口・柄合わせ・重ね代は自動判断しません。
+                </p>
+                <p>
+                  範囲・方向・割付W・最大出荷L・切りしろを変更した場合は、継ぎ位置を再計算します。
+                </p>
+                {body.heightMm === '' && <p>最大出荷Lを入力すると仮の継ぎ位置を配置します。</p>}
+                {computed.result?.roll?.staleSeams && body.autoRollSeams && (
+                  <p role="status">割付条件が変わったため、継ぎ位置は自動配置に戻っています。</p>
+                )}
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={!body.autoRollSeams}
+                  onClick={() => change({ rollSeams: [], rollSeamSource: '' })}
+                >
+                  継ぎ位置を自動に戻す
+                </button>
+                <div className="layout-seam-inputs">
+                  {computed.result?.roll?.seams.map((s) => (
+                    <label key={`${s.column}-${s.index}`}>
+                      帯{s.lane}・継ぎ{s.index + 1}：始端から（{dimensionUnit(body.layoutType)}）
+                      <DimensionInput
+                        value={s.positionMm}
+                        type={body.layoutType}
+                        axis="L"
+                        label={`帯${s.lane}の継ぎ${s.index + 1}の位置（${dimensionUnit(body.layoutType)}）`}
+                        min={s.minMm}
+                        max={s.maxMm}
+                        onChange={(v) => moveSeam(s.column, s.index, v)}
+                      />
+                    </label>
+                  ))}
+                </div>
+                {body.autoRollSeams &&
+                  computed.result?.roll &&
+                  !computed.result.roll.seams.length &&
+                  body.heightMm !== '' && <p>最大出荷L内に収まるため、継ぎ足しは不要です。</p>}
+              </section>
+            )}
             <section className="layout-wall-measurements" aria-label="基準点から壁までの寸法">
               <h3>基準点から壁までの寸法</h3>
               <p>中心の十字から割り付けの縦・横方向に測ります。壁寄せでは十字の位置が起点です。</p>
@@ -849,13 +914,22 @@ export function LayoutEditor({
                     e.preventDefault()
                     e.currentTarget.focus()
                     e.currentTarget.setPointerCapture(e.pointerId)
+                    const seamTarget = (e.target as Element).closest('[data-roll-seam]')
+                    const seam =
+                      seamTarget && computed.result.roll
+                        ? computed.result.roll.seams[
+                            Number(seamTarget.getAttribute('data-roll-seam'))
+                          ]
+                        : undefined
                     drag.current = {
                       x: e.clientX,
                       y: e.clientY,
                       body,
                       scale: view.scale,
                       angle: computed.result.angle,
-                      id: e.pointerId
+                      id: e.pointerId,
+                      seam,
+                      roll: computed.result.roll ?? undefined
                     }
                   }}
                   onPointerMove={(e) => {
@@ -868,11 +942,21 @@ export function LayoutEditor({
                       },
                       -d.angle
                     )
-                    setBody({
-                      ...d.body,
-                      offsetX: Math.round(d.body.offsetX + delta.x),
-                      offsetY: Math.round(d.body.offsetY + delta.y)
-                    })
+                    if (d.seam && d.roll) {
+                      const value = Math.min(
+                        d.seam.maxMm,
+                        Math.max(d.seam.minMm, Math.round(d.seam.positionMm + delta.y))
+                      )
+                      setBody({
+                        ...d.body,
+                        ...adjustRollSeam(d.roll, d.seam.column, d.seam.index, value)
+                      })
+                    } else
+                      setBody({
+                        ...d.body,
+                        offsetX: Math.round(d.body.offsetX + delta.x),
+                        offsetY: Math.round(d.body.offsetY + delta.y)
+                      })
                     setNotice('')
                   }}
                   onLostPointerCapture={() => {
@@ -897,7 +981,26 @@ export function LayoutEditor({
                     if (dirs[e.key]) {
                       e.preventDefault()
                       e.stopPropagation()
-                      nudge(...dirs[e.key])
+                      const target = (e.target as Element).closest('[data-roll-seam]')
+                      const roll = computed.result?.roll
+                      const seam =
+                        target && roll
+                          ? roll.seams[Number(target.getAttribute('data-roll-seam'))]
+                          : undefined
+                      if (seam)
+                        moveSeam(
+                          seam.column,
+                          seam.index,
+                          Math.min(
+                            seam.maxMm,
+                            Math.max(
+                              seam.minMm,
+                              seam.positionMm +
+                                (e.key === 'ArrowDown' || e.key === 'ArrowRight' ? step : -step)
+                            )
+                          )
+                        )
+                      else nudge(...dirs[e.key])
                     }
                   }}
                 >
@@ -972,6 +1075,15 @@ export function LayoutEditor({
                       layoutType={body.layoutType}
                       showDimensions={showSheetDimensions}
                     />
+                  )}
+                  {computed.result?.roll && (
+                    <g clipPath={`url(#${clipId})`}>
+                      <RollSeams
+                        seams={computed.result.roll.seams}
+                        scale={view.scale}
+                        interactive={!busy && loaded}
+                      />
+                    </g>
                   )}
                   {computed.result && showDimensions && wallDimensions?.inside && (
                     <LayoutDimensionsOverlay

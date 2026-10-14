@@ -324,3 +324,20 @@
   border-radius: 4px;
   padding: 4px 8px;
 }
+.layout-roll-seams {
+  border-block: 1px solid var(--border);
+  padding-block: 12px;
+  margin-block: 12px;
+}
+.layout-seam-inputs {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.layout-overlay [data-roll-seam]:focus-visible {
+  outline: none;
+}
+.layout-overlay [data-roll-seam]:focus-visible > line:last-of-type {
+  stroke: #70189a;
+  stroke-dasharray: none;
+}

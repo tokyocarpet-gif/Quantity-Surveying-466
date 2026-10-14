@@ -2,7 +2,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { Point } from '../../../shared/takeoff'
 import { computeLayout, type LayoutBody } from '../../../shared/layout'
-import { RollOverlay } from './RollLayoutView'
+import { RollOverlay, RollSeams } from './RollLayoutView'
 
 /** Render the selected room independently of the current screen's zoom and pan. */
 export async function layoutImage(
@@ -74,6 +74,11 @@ export async function layoutImage(
           layoutType={body.layoutType}
           showDimensions
         />
+      )}
+      {result.roll && (
+        <g clipPath="url(#room)">
+          <RollSeams seams={result.roll.seams} scale={printScale} />
+        </g>
       )}
     </svg>
   )

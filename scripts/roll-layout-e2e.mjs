@@ -106,6 +106,7 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
   await expect(page.getByTestId('roll-total-length')).toHaveText(
     `使用L合計 ${(total + count * 0.1).toFixed(1)} m`
   )
+  await page.getByRole('checkbox', { name: '最大出荷Lで継ぎ位置を自動配置', exact: true }).uncheck()
   await page.getByLabel('最大出荷L（m・任意）', { exact: true }).fill('1')
   await expect(page.getByRole('alert')).toContainText('最大出荷Lを超えるシート')
   await expect(labels.first()).toContainText('L 6.0 m')
@@ -114,6 +115,7 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
   await expect(page.getByTestId('roll-count')).toContainText('L 未設定')
   await expect(labels.first()).toContainText('L 6.0 m')
   await expect(page.getByRole('button', { name: '割り付けを保存', exact: true })).toBeEnabled()
+  await page.getByRole('checkbox', { name: '最大出荷Lで継ぎ位置を自動配置', exact: true }).check()
   await page.getByRole('button', { name: '割り付けを保存', exact: true }).click()
   await expect(page.getByText('割り付けを保存しました。', { exact: true })).toBeVisible()
   await editor

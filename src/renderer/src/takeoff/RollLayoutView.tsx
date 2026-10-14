@@ -8,6 +8,73 @@ import {
 } from '../../../shared/roll-dimensions'
 type Roll = NonNullable<ReturnType<typeof computeLayout>['roll']>
 
+export function RollSeams({
+  seams,
+  scale,
+  interactive = false
+}: {
+  seams: Roll['seams']
+  scale: number
+  interactive?: boolean
+}): React.JSX.Element {
+  return (
+    <g data-testid="roll-seams">
+      {seams.map((s, i) => (
+        <g
+          key={`${s.column}-${s.index}`}
+          data-roll-seam={interactive ? i : undefined}
+          role={interactive ? 'slider' : undefined}
+          tabIndex={interactive ? 0 : undefined}
+          aria-label={interactive ? `帯${s.lane}の継ぎ位置${s.index + 1}` : undefined}
+          aria-valuemin={interactive ? s.minMm : undefined}
+          aria-valuemax={interactive ? s.maxMm : undefined}
+          aria-valuenow={interactive ? s.positionMm : undefined}
+          aria-valuetext={interactive ? `${s.positionMm} mm` : undefined}
+          style={interactive ? { cursor: 'move' } : undefined}
+        >
+          <title>
+            帯{s.lane}・継ぎ{s.index + 1}（仮）／始端から{s.positionMm.toFixed(1)} mm
+          </title>
+          {interactive && (
+            <line
+              x1={s.from.x}
+              y1={s.from.y}
+              x2={s.to.x}
+              y2={s.to.y}
+              stroke="transparent"
+              strokeWidth={14 / scale}
+              pointerEvents="stroke"
+            />
+          )}
+          <line
+            x1={s.from.x}
+            y1={s.from.y}
+            x2={s.to.x}
+            y2={s.to.y}
+            stroke="#c02b73"
+            strokeDasharray={`${6 / scale} ${3 / scale}`}
+            strokeWidth={2.5 / scale}
+            pointerEvents="none"
+          />
+          <text
+            x={(s.from.x + s.to.x) / 2}
+            y={(s.from.y + s.to.y) / 2 - 6 / scale}
+            textAnchor="middle"
+            fontSize={10 / scale}
+            fill="#a52261"
+            stroke="white"
+            strokeWidth={3 / scale}
+            paintOrder="stroke"
+            pointerEvents="none"
+          >
+            帯{s.lane}・継ぎ{s.index + 1}
+          </text>
+        </g>
+      ))}
+    </g>
+  )
+}
+
 function MeasuredLine({
   from,
   to,
@@ -83,7 +150,7 @@ export function RollOverlay({
         return (
           <g key={s.number} strokeWidth={1.5 / scale}>
             <title>
-              シート{s.number}・W {dimensionLabel(s.widthMm, layoutType, 'W')}・L{' '}
+              帯{s.lane}・シート{s.number}・W {dimensionLabel(s.widthMm, layoutType, 'W')}・L{' '}
               {dimensionLabel(s.lengthMm, layoutType)}
             </title>
             {showDimensions && (
@@ -186,7 +253,7 @@ export function RollResults({
       )}
       {roll.overLength && (
         <p className="form-error" role="alert">
-          最大出荷Lを超えるシートがあります。最大出荷Lや敷く方向を見直してください。継ぎ足しは自動で配置しません。
+          最大出荷Lを超えるシートがあります。継ぎ位置を調整するか、自動配置を有効にして「継ぎ位置を自動に戻す」を押してください。
         </p>
       )}
       <details className="roll-cut-list">

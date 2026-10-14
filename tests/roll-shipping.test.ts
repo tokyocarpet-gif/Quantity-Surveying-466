@@ -51,7 +51,12 @@ test('最大出荷Lは上限確認に使い、未設定や長い上限へ変更�
     assert.equal(r.requiredArea, normal.requiredArea)
     assert.equal(r.lengthM, normal.lengthM)
   }
-  assert.equal(computeLayout(polygon, 0.001, { ...body, heightMm: 6000 }).roll!.overLength, true)
+  assert.equal(computeLayout(polygon, 0.001, { ...body, heightMm: 6000 }).roll!.overLength, false)
+  assert.equal(
+    computeLayout(polygon, 0.001, { ...body, heightMm: 6000, autoRollSeams: false }).roll!
+      .overLength,
+    true
+  )
   assert.equal(computeLayout(polygon, 0.001, { ...body, heightMm: 6100 }).roll!.overLength, false)
   assert.throws(() => computeLayout(polygon, 0.001, { ...body, widthMm: 4000 }), /最大出荷W/)
   const sheet = computeLayout(polygon, 0.001, {
