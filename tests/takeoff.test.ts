@@ -83,6 +83,196 @@ async function fixture() {
   return { folder, storage, drawing, address, read, mutation, apply, scale, room, cleanup }
 }
 
+test('部屋の並べ替えは統合範囲・数量・控除・個数を変えず、再起動とバックアップ復元でも保持する', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const first = f.room(),
+      second = f.room(),
+      third = f.room()
+    const part = randomUUID()
+    f.apply({ kind: 'room', id: part, input: roomInput(), mergeInto: first })
+    const wall = f.read().items.find((i) => i.roomId === first && i.category === 'wall')!
+    f.apply({ kind: 'fixed', itemId: wall.id, quantity: 40 })
+    f.apply({
+      kind: 'deduction',
+      id: randomUUID(),
+      input: {
+        targetItemId: wall.id,
+        name: '開口',
+        widthMm: 900,
+        heightMm: 2000,
+        count: 1
+      }
+    })
+    f.apply({
+      kind: 'count',
+      id: randomUUID(),
+      input: {
+        roomId: first,
+        name: '器具',
+        category: '設備',
+        specification: '',
+        unit: '個',
+        unitPrice: 100,
+        color: '#327e6d',
+        points: [{ x: 150, y: 150 }]
+      }
+    })
+    const before = f.read()
+    const order = [third, first, second]
+    const sorted = f.storage.reorderRooms({
+      ...f.address,
+      expectedRevision: before.revision,
+      groupIds: order
+    })
+    assert.deepEqual(
+      sorted.rooms.map((r) => r.id),
+      [third, first, part, second]
+    )
+    assert.deepEqual(
+      [...sorted.rooms].sort((a, b) => a.id.localeCompare(b.id)),
+      [...before.rooms].sort((a, b) => a.id.localeCompare(b.id))
+    )
+    assert.deepEqual(sorted.items, before.items)
+    assert.deepEqual(sorted.deductions, before.deductions)
+    assert.deepEqual(sorted.counts, before.counts)
+    assert.equal(sorted.revision, before.revision + 1)
+    assert.equal(sorted.scaleRatio, before.scaleRatio)
+    assert.deepEqual(sorted.calibration, before.calibration)
+    assert.deepEqual(
+      f.storage.reorderRooms({ ...f.address, expectedRevision: sorted.revision, groupIds: order }),
+      sorted
+    )
+    f.storage.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readTakeoff(f.address), sorted)
+      const backup = join(f.folder, 'order.sekisan-backup')
+      await reopened.createBackup(backup)
+      reopened.reorderRooms({
+        ...f.address,
+        expectedRevision: sorted.revision,
+        groupIds: [first, second, third]
+      })
+      await reopened.restoreBackup(backup)
+      assert.deepEqual(reopened.readTakeoff(f.address), sorted)
+      // Ordinary edits keep the order; new groups are appended; deleted IDs are harmless.
+      reopened.applyTakeoff({
+        ...f.address,
+        expectedRevision: sorted.revision,
+        change: {
+          kind: 'room',
+          id: second,
+          input: { ...roomInput(), name: '変更後' }
+        }
+      })
+      assert.deepEqual(
+        [...new Set(reopened.readTakeoff(f.address).rooms.map((r) => r.groupId))],
+        order
+      )
+      const extra = randomUUID()
+      reopened.applyTakeoff({
+        ...f.address,
+        expectedRevision: reopened.readTakeoff(f.address).revision,
+        change: { kind: 'room', id: extra, input: { ...roomInput(), name: '追加' } }
+      })
+      assert.equal(reopened.readTakeoff(f.address).rooms.at(-1)!.id, extra)
+      reopened.applyTakeoff({
+        ...f.address,
+        expectedRevision: reopened.readTakeoff(f.address).revision,
+        change: { kind: 'deleteRoom', id: third }
+      })
+      assert.deepEqual(
+        [...new Set(reopened.readTakeoff(f.address).rooms.map((r) => r.groupId))],
+        [first, second, extra]
+      )
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('部屋の並べ替えは古い版・重複・欠落・別ページのIDを拒否し、データを変更しない', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const first = f.room(),
+      second = f.room()
+    const before = f.read()
+    for (const groupIds of [
+      [first],
+      [first, first],
+      [first, randomUUID()],
+      [first, second, randomUUID()]
+    ]) {
+      assert.throws(() =>
+        f.storage.reorderRooms({ ...f.address, expectedRevision: before.revision, groupIds })
+      )
+      assert.deepEqual(f.read(), before)
+    }
+    assert.throws(
+      () =>
+        f.storage.reorderRooms({
+          ...f.address,
+          expectedRevision: before.revision - 1,
+          groupIds: [second, first]
+        }),
+      /開き直して/
+    )
+    assert.throws(() =>
+      f.storage.reorderRooms({
+        ...f.address,
+        pageNumber: 2,
+        expectedRevision: 0,
+        groupIds: [second, first]
+      })
+    )
+    assert.deepEqual(f.read(), before)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('v21から並び順保存へ移行しても既存の部屋と数量は変わらない', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    f.room()
+    f.room()
+    const before = f.read()
+    f.storage.close()
+    const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
+    db.exec('ALTER TABLE drawing_pages DROP COLUMN roomOrder; PRAGMA user_version=21')
+    db.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readTakeoff(f.address), before)
+      assert.ok(
+        readdirSync(join(f.folder, 'app/recovery')).some((name) =>
+          name.startsWith('before-schema-v22-')
+        )
+      )
+      assert.deepEqual(
+        reopened
+          .reorderRooms({
+            ...f.address,
+            expectedRevision: before.revision,
+            groupIds: before.rooms.map((r) => r.groupId).reverse()
+          })
+          .rooms.map((r) => r.id),
+        before.rooms.map((r) => r.id).reverse()
+      )
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
 test('基準の4m×3m・高さ2400mmが天井12、壁33.6、巾木14、床12になる', () => {
   assert.deepEqual(roomQuantities(polygon, 0.01, 2400), {
     ceiling: 12,
@@ -497,7 +687,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 21)
+    assert.equal(internal.pragma('user_version', { simple: true }), 22)
   } finally {
     f.cleanup()
   }
@@ -1149,18 +1339,18 @@ test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せ
     const oldRooms = db.prepare('SELECT * FROM rooms').all()
     const oldItems = db.prepare('SELECT * FROM takeoff_items').all()
     db.exec(
-      'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
+      'ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
     )
     db.pragma('user_version = 13')
     f.storage.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       const migrated = (reopened as unknown as { db: Database.Database }).db
-      assert.equal(migrated.pragma('user_version', { simple: true }), 21)
+      assert.equal(migrated.pragma('user_version', { simple: true }), 22)
       assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
       assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
       assert.ok(
-        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v21-'))
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v22-'))
       )
     } finally {
       reopened.close()

@@ -23,7 +23,7 @@ import type {
   SummaryEdit
 } from './summary'
 import type { MaterialContext, MaterialChange } from './materials'
-import type { PageState, TakeoffMutation, TakeoffPreview } from './takeoff'
+import type { PageState, TakeoffMutation, TakeoffPreview, ReorderRooms } from './takeoff'
 export type ProjectStatus = 'active' | 'completed' | 'archived'
 export interface Client {
   id: string
@@ -104,6 +104,7 @@ export interface AppApi {
   readTakeoff(address: { drawingId: string; pageNumber: number }): Promise<Result<PageState>>
   previewTakeoff(input: TakeoffMutation): Promise<Result<TakeoffPreview>>
   applyTakeoff(input: TakeoffMutation): Promise<Result<PageState>>
+  reorderRooms(input: ReorderRooms): Promise<Result<PageState>>
   workspace(): Promise<Result<Workspace>>
   saveSelection(value: Selection): Promise<Result<void>>
   createClient(name: string): Promise<Result<Client>>

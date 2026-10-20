@@ -51,6 +51,10 @@ PRAGMA user_version = 15;
 export const LAYOUT_BOUNDARY_SQL = `PRAGMA user_version = 16;`
 export const TILE_PATTERN_SQL = `PRAGMA user_version = 17;`
 export const WALL_START_SIDE_SQL = `PRAGMA user_version = 21;`
+export const ROOM_ORDER_SQL = `
+ALTER TABLE drawing_pages ADD COLUMN roomOrder TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version = 22;
+`
 export const WALL_PANEL_SQL = `PRAGMA user_version = 20;`
 export const HERRINGBONE_SQL = `PRAGMA user_version = 18;`
 
@@ -77,5 +81,6 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 19) db.exec(WALL_LAYOUT_SQL)
     if (version < 20) db.exec(WALL_PANEL_SQL)
     if (version < 21) db.exec(WALL_START_SIDE_SQL)
+    if (version < 22) db.exec(ROOM_ORDER_SQL)
   })()
 }

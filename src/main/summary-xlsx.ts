@@ -139,7 +139,8 @@ export function summaryWorkbookLayout(report: SummaryReport, section: string) {
     const amount = rawAmount === null ? null : number(String(rawAmount))
     const names = wrap(row.roomLabel, 22),
       parts = wrap(partLabel(row.category), 8)
-    const finishes = wrap([row.finish, row.specification].filter(Boolean).join('\n'), 32)
+    // Specifications remain in the app and grouping keys, but consume no export rows.
+    const finishes = wrap(row.finish, 32)
     const units = wrap(row.unit, 6),
       notes = wrap(roomKeys.get(row.roomLabel)!.size > 1 ? row.location : '', 16)
     const length = Math.max(names.length, parts.length, finishes.length, units.length, notes.length)
@@ -264,13 +265,17 @@ function extendDetail(original: string, count: number): string {
         (_, refs) => `<xm:sqref>${extendRanges(refs)}</xm:sqref>`
       )
   }
-  // The reference only prints its first page. Include all retained pages and
+  // The reference may print only some pages. Include all retained pages and
   // keep each 25-row form together when Excel prints the exported workbook.
   const breaks = Array.from(
     { length: count - 1 },
     (_, p) => `<brk id="${(p + 1) * PAGE_ROWS}" max="10" man="1"/>`
   ).join('')
   const rowBreaks = `<rowBreaks count="${count - 1}" manualBreakCount="${count - 1}">${breaks}</rowBreaks>`
+  // A worksheet permits only one rowBreaks element. Newer templates already
+  // contain it: replace it rather than append a second, Excel-invalid element.
+  if (/<rowBreaks\b/.test(xml))
+    return xml.replace(/<rowBreaks\b[^>]*(?:\/>|>[\s\S]*?<\/rowBreaks>)/, rowBreaks)
   return xml.replace(/(<headerFooter\b[^>]*(?:\/>|>[\s\S]*?<\/headerFooter>))/, '$1' + rowBreaks)
 }
 
@@ -370,8 +375,8 @@ export function renderSummaryXlsx(
     .readAsText('xl/workbook.xml')
     .replace(/<calcPr\b[^>]*\/>/, '<calcPr fullCalcOnLoad="1" forceFullCalc="1"/>')
   workbook = workbook.replace(
-    '内訳書!$A$1:$K$25',
-    `内訳書!$A$1:$K$${layout.pages.length * PAGE_ROWS}`
+    /(<definedName\b[^>]*\bname="_xlnm\.Print_Area"[^>]*>)(?:&apos;|')?内訳書(?:&apos;|')?!\$A\$1:\$K\$\d+(<\/definedName>)/,
+    (_, open, close) => `${open}内訳書!$A$1:$K$${layout.pages.length * PAGE_ROWS}${close}`
   )
   add('xl/workbook.xml', workbook)
   zip.deleteFile('xl/calcChain.xml')

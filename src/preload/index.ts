@@ -31,6 +31,7 @@ const api: AppApi = {
   readMaterials: (id) => ipcRenderer.invoke('materials:read', id),
   changeMaterials: (input) => ipcRenderer.invoke('materials:change', input),
   readTakeoff: (address) => ipcRenderer.invoke('takeoff:read', address),
+  reorderRooms: (input) => ipcRenderer.invoke('takeoff:reorderRooms', input),
   previewTakeoff: (input) => ipcRenderer.invoke('takeoff:preview', input),
   applyTakeoff: (input) => ipcRenderer.invoke('takeoff:apply', input),
   workspace: () => ipcRenderer.invoke('workspace:read'),

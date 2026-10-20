@@ -66,11 +66,13 @@ import {
   TILE_PATTERN_SQL,
   HERRINGBONE_SQL,
   WALL_PANEL_SQL,
-  WALL_START_SIDE_SQL
+  WALL_START_SIDE_SQL,
+  ROOM_ORDER_SQL
 } from './schema'
 import {
   TAKEOFF_SQL,
   readTakeoff,
+  reorderRooms,
   previewTakeoff,
   applyTakeoff,
   validateTakeoffData
@@ -111,7 +113,8 @@ const manifestSchema = z
       z.literal(18),
       z.literal(19),
       z.literal(20),
-      z.literal(21)
+      z.literal(21),
+      z.literal(22)
     ]),
     createdAt: z.string().datetime(),
     files: z
@@ -157,13 +160,13 @@ export class Storage {
     try {
       this.db.pragma('foreign_keys = ON')
       const version = this.db.pragma('user_version', { simple: true }) as number
-      if (version > 21)
+      if (version > 22)
         throw new Error('このデータは新しいバージョンの積算管理で作成されています。')
-      if (version > 0 && version < 21) {
+      if (version > 0 && version < 22) {
         const migrationPath = join(
           this.root,
           'recovery',
-          `before-schema-v21-${Date.now()}-${randomUUID()}.db`
+          `before-schema-v22-${Date.now()}-${randomUUID()}.db`
         )
         mkdirSync(dirname(migrationPath), { recursive: true })
         this.db.prepare('VACUUM INTO ?').run(migrationPath)
@@ -308,6 +311,9 @@ export class Storage {
   }
   readTakeoff(input: unknown): PageState {
     return readTakeoff(this.db, input)
+  }
+  reorderRooms(input: unknown): PageState {
+    return reorderRooms(this.db, input)
   }
   previewTakeoff(input: unknown): TakeoffPreview {
     return previewTakeoff(this.db, input)
@@ -577,7 +583,7 @@ export class Storage {
       const createdAt = now()
       const manifest = Buffer.from(
         JSON.stringify(
-          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 21, createdAt, files },
+          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 22, createdAt, files },
           null,
           2
         )
@@ -675,6 +681,7 @@ export class Storage {
         if (manifest.schemaVersion >= 19) reference.exec(WALL_LAYOUT_SQL)
         if (manifest.schemaVersion >= 20) reference.exec(WALL_PANEL_SQL)
         if (manifest.schemaVersion >= 21) reference.exec(WALL_START_SIDE_SQL)
+        if (manifest.schemaVersion >= 22) reference.exec(ROOM_ORDER_SQL)
         if (JSON.stringify(schema(db)) !== JSON.stringify(schema(reference)))
           throw new Error('このアプリのデータ形式と一致しません。')
       } finally {
@@ -740,7 +747,7 @@ export class Storage {
     } finally {
       db.close()
     }
-    if (manifest.schemaVersion < 21) {
+    if (manifest.schemaVersion < 22) {
       const staged = new Database(join(target, DATABASE))
       try {
         staged.pragma('foreign_keys = ON')

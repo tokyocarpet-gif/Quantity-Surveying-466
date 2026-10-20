@@ -11,7 +11,7 @@ import {
   type SummarySource,
   type SummaryDrawing
 } from '../shared/summary'
-import { netFromTotals, finishesSchema, type Category } from '../shared/takeoff'
+import { netFromTotals, finishesSchema, roomOrderSchema, type Category } from '../shared/takeoff'
 export function readSummary(db: Database.Database, raw: unknown): SummaryReport {
   const request = summaryRequestSchema.parse(raw)
   const project = db
@@ -23,6 +23,20 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
   const drawings = db
     .prepare('SELECT id,name,pageCount FROM drawings WHERE projectId=? ORDER BY createdAt,id')
     .all(request.projectId) as SummaryDrawing[]
+  const drawingOrder = new Map(drawings.map((d, index) => [d.id, index]))
+  const pageOrders = new Map<string, Map<string, number>>()
+  const pages = db
+    .prepare(
+      'SELECT p.* FROM drawing_pages p JOIN drawings d ON d.id=p.drawingId WHERE d.projectId=?'
+    )
+    .all(request.projectId) as { drawingId: string; pageNumber: number; roomOrder?: string }[]
+  for (const page of pages) {
+    const order = roomOrderSchema.parse(JSON.parse(page.roomOrder ?? '[]'))
+    pageOrders.set(
+      `${page.drawingId}:${page.pageNumber}`,
+      new Map(order.map((id, index) => [id, index]))
+    )
+  }
   const storedRooms = db
     .prepare(
       'SELECT rooms.* FROM rooms JOIN drawings ON drawings.id=rooms.drawingId WHERE drawings.projectId=? ORDER BY drawings.createdAt,drawings.id,rooms.pageNumber,rooms.rowid'
@@ -34,6 +48,16 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
     drawingId: string
     pageNumber: number
   }[]
+  const position = (room: (typeof storedRooms)[number]): number =>
+    pageOrders.get(`${room.drawingId}:${room.pageNumber}`)?.get(room.groupId) ??
+    Number.MAX_SAFE_INTEGER
+  // Match the takeoff list: drawing, numeric page, saved group order, then registration order.
+  storedRooms.sort(
+    (a, b) =>
+      drawingOrder.get(a.drawingId)! - drawingOrder.get(b.drawingId)! ||
+      a.pageNumber - b.pageNumber ||
+      position(a) - position(b)
+  )
   const rooms: SummaryRoom[] = []
   const groups = new Map<string, SummaryRoom>()
   const pageCounts = new Map<string, number>()
@@ -114,6 +138,12 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
         })
       }
   }
+  sources.sort(
+    (a, b) =>
+      drawingOrder.get(a.drawingId)! - drawingOrder.get(b.drawingId)! ||
+      a.pageNumber - b.pageNumber ||
+      (a.roomOrdinal || Number.MAX_SAFE_INTEGER) - (b.roomOrdinal || Number.MAX_SAFE_INTEGER)
+  )
   const report = {
     request,
     projectName: project.name,

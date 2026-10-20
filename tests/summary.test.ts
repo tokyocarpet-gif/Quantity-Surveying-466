@@ -81,6 +81,25 @@ test('集計は統合範囲を合算し、同名の別室・ページ・部位�
     assert.equal(r.amount, byRoom.amount)
   }
 })
+test('部屋別集計は保存順・数値のページ順を使い、未指定は各ページの最後に置く', () => {
+  const sources = [
+    source({ groupId: randomUUID(), roomName: 'A室', roomOrdinal: 3 }),
+    source({ groupId: randomUUID(), roomName: 'Z室', roomOrdinal: 1 }),
+    source({ groupId: randomUUID(), roomName: 'M室', roomOrdinal: 2 }),
+    source({ groupId: null, roomId: null, roomOrdinal: 0 }),
+    source({ groupId: randomUUID(), pageNumber: 10, roomName: '10ページ' }),
+    source({ groupId: randomUUID(), pageNumber: 2, roomName: '2ページ' })
+  ]
+  for (const view of ['room', 'room-finish'] as const) {
+    const r = aggregateSummary(sources, { ...request, view })
+    assert.deepEqual(
+      r.rows.map((row) => row.roomLabel),
+      ['Z室', 'M室', 'A室', '部屋未指定', '2ページ', '10ページ']
+    )
+    assert.equal(r.amount, '7200')
+  }
+})
+
 test('未設定単価と0円を区別し、合計が正でも負の元明細を検出する', () => {
   const sources = [
     source({ unitPrice: null }),
@@ -232,6 +251,90 @@ async function fixture() {
     }
   }
 }
+test('拾い出しの並び替えを部屋別集計へ引き継ぎ、絞り込み・再起動後も数量を保つ', async () => {
+  const f = await fixture()
+  try {
+    const first = f.read().rooms[0].id,
+      second = randomUUID(),
+      third = randomUUID()
+    f.apply({ kind: 'room', id: second, input: { ...f.input, name: 'AAA室' } })
+    f.apply({ kind: 'room', id: third, input: { ...f.input, name: 'ZZZ室' } })
+    f.apply({ kind: 'room', id: randomUUID(), input: f.input, mergeInto: first })
+    f.apply({
+      kind: 'count',
+      id: randomUUID(),
+      input: {
+        roomId: second,
+        name: '器具',
+        category: '設備',
+        specification: '規格あり',
+        unit: '個',
+        unitPrice: 100,
+        color: '#327e6d',
+        points: [{ x: 150, y: 150 }]
+      }
+    })
+    const before = f.storage.readSummary(f.req)
+    const order = [third, first, second]
+    f.storage.reorderRooms({
+      drawingId: f.drawing.id,
+      pageNumber: 1,
+      expectedRevision: f.read().revision,
+      groupIds: order
+    })
+    const otherPage = f.read(2).rooms[0].id
+    for (const view of ['room-finish', 'room'] as const) {
+      const report = f.storage.readSummary({ ...f.req, view })
+      assert.deepEqual(
+        report.rooms.map((r) => r.id),
+        [...order, otherPage]
+      )
+      assert.deepEqual([...new Set(report.rows.map((r) => r.sectionKey))], [...order, otherPage])
+      assert.deepEqual(
+        report.rooms.map((r) => r.ordinal),
+        [1, 2, 3, 1]
+      )
+      assert.deepEqual(report.totals, before.totals)
+      assert.equal(report.amount, before.amount)
+      assert.equal(report.lines.find((l) => l.source === 'count')!.roomOrdinal, 3)
+    }
+    const after = f.storage.readSummary(f.req)
+    assert.notEqual(after.fingerprint, before.fingerprint)
+    assert.deepEqual(
+      [...after.rows].sort((a, b) => a.id.localeCompare(b.id)),
+      [...before.rows].sort((a, b) => a.id.localeCompare(b.id))
+    )
+    const filtered = f.storage.readSummary({
+      ...f.req,
+      drawingId: f.drawing.id,
+      pageNumber: 1,
+      category: 'floor'
+    })
+    assert.deepEqual(
+      filtered.rows.map((r) => r.sectionKey),
+      order
+    )
+    assert.throws(
+      () =>
+        f.storage.summaryXlsxReport({
+          request: f.req,
+          fingerprint: before.fingerprint,
+          section: '内装工事'
+        }),
+      /再集計/
+    )
+    f.storage.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readSummary(f.req).rows, after.rows)
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
 test('保存データの集計は全ページ・袖壁・固定数量・控除を反映し、元データを変更しない', async () => {
   const f = await fixture()
   try {

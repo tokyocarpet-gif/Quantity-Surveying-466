@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   DoorOpen,
+  GripVertical,
   Hand,
   Maximize2,
   Minus,
@@ -67,6 +68,8 @@ export function TakeoffEditor({
   back: () => void
 }): React.JSX.Element {
   const [state, setState] = useState<PageState | null>(null)
+  const [draggedRoom, setDraggedRoom] = useState<string | null>(null)
+  const [roomDrop, setRoomDrop] = useState<{ id: string; after: boolean } | null>(null)
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState('')
@@ -152,8 +155,45 @@ export function TakeoffEditor({
     (!!countEditor &&
       JSON.stringify(countEditor.input) !==
         JSON.stringify(savedCount ? countInputOf(savedCount) : null))
+  const roomGroups =
+    state?.rooms.filter(
+      (room, index, all) => all.findIndex((r) => r.groupId === room.groupId) === index
+    ) ?? []
+  const canReorder =
+    !busy &&
+    !changed &&
+    roomGroups.length > 1 &&
+    state?.drawingId === drawing.id &&
+    state?.pageNumber === pageNumber
+  const saveRoomOrder = async (ids: string[]): Promise<void> => {
+    if (!state || !canReorder || ids.every((id, index) => id === roomGroups[index].groupId)) return
+    setBusy(true)
+    setError('')
+    try {
+      const data = await unwrap(
+        window.sekisan.reorderRooms({
+          drawingId: state.drawingId,
+          pageNumber: state.pageNumber,
+          expectedRevision: state.revision,
+          groupIds: ids
+        })
+      )
+      setState((current) =>
+        current?.drawingId === data.drawingId && current.pageNumber === data.pageNumber
+          ? data
+          : current
+      )
+      setNotice('部屋の並び順を保存しました')
+    } catch (e) {
+      setError(errorMessage(e, '部屋の並び順を保存できませんでした。'))
+    } finally {
+      setBusy(false)
+    }
+  }
   useEffect(() => {
     let cancelled = false
+    setDraggedRoom(null)
+    setRoomDrop(null)
     void unwrap(window.sekisan.readTakeoff({ drawingId: drawing.id, pageNumber }))
       .then((data) => {
         if (!cancelled) setState(data)
@@ -946,54 +986,119 @@ export function TakeoffEditor({
                 個数を追加
               </button>
               <div className="takeoff-rooms">
-                {state.rooms
-                  .filter((r, i, all) => all.findIndex((n) => n.groupId === r.groupId) === i)
-                  .map((room) => (
-                    <button
-                      className={`room-list-card ${room.groupId === selected?.groupId ? 'selected' : ''}`}
-                      key={room.id}
-                      data-testid="room-card"
-                      disabled={busy}
-                      onClick={() => selectRoom(room)}
-                    >
-                      <strong>
-                        <span style={{ background: room.color }} />
-                        {room.name}
-                      </strong>
-                      {state.rooms.filter((r) => r.groupId === room.groupId).length > 1 && (
-                        <small>
-                          統合 · {state.rooms.filter((r) => r.groupId === room.groupId).length}
-                          範囲の合計
-                        </small>
-                      )}
-                      <div>
-                        {categories.map((c) => {
-                          const items = state.items.filter(
-                            (i) =>
-                              state.rooms.some(
-                                (r) => r.id === i.roomId && r.groupId === room.groupId
-                              ) &&
-                              i.source === 'auto-room' &&
-                              i.category === c
+                {roomGroups.map((room) => (
+                  <button
+                    className={`room-list-card ${room.groupId === selected?.groupId ? 'selected' : ''} ${draggedRoom === room.groupId ? 'dragging' : ''} ${roomDrop?.id === room.groupId ? (roomDrop.after ? 'drop-after' : 'drop-before') : ''}`}
+                    key={room.id}
+                    data-testid="room-card"
+                    data-room-group={room.groupId}
+                    disabled={busy}
+                    draggable={canReorder}
+                    title={
+                      changed
+                        ? '編集中の内容を保存すると並べ替えできます'
+                        : 'ドラッグで並べ替え（Alt＋↑／↓でも移動できます）'
+                    }
+                    onDragStart={(event) => {
+                      if (!canReorder) {
+                        event.preventDefault()
+                        return
+                      }
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', room.groupId)
+                      setDraggedRoom(room.groupId)
+                    }}
+                    onDragOver={(event) => {
+                      if (!canReorder || !draggedRoom || draggedRoom === room.groupId) return
+                      event.preventDefault()
+                      event.dataTransfer.dropEffect = 'move'
+                      const bounds = event.currentTarget.getBoundingClientRect()
+                      setRoomDrop({
+                        id: room.groupId,
+                        after: event.clientY >= bounds.top + bounds.height / 2
+                      })
+                    }}
+                    onDragLeave={() =>
+                      setRoomDrop((current) => (current?.id === room.groupId ? null : current))
+                    }
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      if (!canReorder || !draggedRoom || draggedRoom === room.groupId) return
+                      const bounds = event.currentTarget.getBoundingClientRect()
+                      const ids = roomGroups
+                        .map((r) => r.groupId)
+                        .filter((id) => id !== draggedRoom)
+                      ids.splice(
+                        ids.indexOf(room.groupId) +
+                          (event.clientY >= bounds.top + bounds.height / 2 ? 1 : 0),
+                        0,
+                        draggedRoom
+                      )
+                      setDraggedRoom(null)
+                      setRoomDrop(null)
+                      void saveRoomOrder(ids)
+                    }}
+                    onDragEnd={() => {
+                      setDraggedRoom(null)
+                      setRoomDrop(null)
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        !canReorder ||
+                        !event.altKey ||
+                        !['ArrowUp', 'ArrowDown'].includes(event.key)
+                      )
+                        return
+                      event.preventDefault()
+                      const ids = roomGroups.map((r) => r.groupId)
+                      const from = ids.indexOf(room.groupId)
+                      const to = from + (event.key === 'ArrowUp' ? -1 : 1)
+                      if (to < 0 || to >= ids.length) return
+                      ids.splice(from, 1)
+                      ids.splice(to, 0, room.groupId)
+                      void saveRoomOrder(ids)
+                    }}
+                    onClick={() => selectRoom(room)}
+                  >
+                    <strong>
+                      <GripVertical size={13} className="room-drag-grip" aria-hidden="true" />
+                      <span style={{ background: room.color }} />
+                      {room.name}
+                    </strong>
+                    {state.rooms.filter((r) => r.groupId === room.groupId).length > 1 && (
+                      <small>
+                        統合 · {state.rooms.filter((r) => r.groupId === room.groupId).length}
+                        範囲の合計
+                      </small>
+                    )}
+                    <div>
+                      {categories.map((c) => {
+                        const items = state.items.filter(
+                          (i) =>
+                            state.rooms.some(
+                              (r) => r.id === i.roomId && r.groupId === room.groupId
+                            ) &&
+                            i.source === 'auto-room' &&
+                            i.category === c
+                        )
+                        if (!items.length) return null
+                        return [...new Set(items.map((i) => i.unit))].map((unit) => {
+                          const net = items
+                            .filter((i) => i.unit === unit)
+                            .reduce((sum, item) => sum + netQuantity(item, state.deductions), 0)
+                          return (
+                            <span key={`${c}-${unit}`}>
+                              <span>{categoryLabels[c]}</span>
+                              <b className={net < 0 ? 'negative' : ''}>
+                                {quantityText(net)} <small>{unit}</small>
+                              </b>
+                            </span>
                           )
-                          if (!items.length) return null
-                          return [...new Set(items.map((i) => i.unit))].map((unit) => {
-                            const net = items
-                              .filter((i) => i.unit === unit)
-                              .reduce((sum, item) => sum + netQuantity(item, state.deductions), 0)
-                            return (
-                              <span key={`${c}-${unit}`}>
-                                <span>{categoryLabels[c]}</span>
-                                <b className={net < 0 ? 'negative' : ''}>
-                                  {quantityText(net)} <small>{unit}</small>
-                                </b>
-                              </span>
-                            )
-                          })
-                        })}
-                      </div>
-                    </button>
-                  ))}
+                        })
+                      })}
+                    </div>
+                  </button>
+                ))}
                 {(state.counts ?? []).map((c) => (
                   <button
                     className={`room-list-card ${selectedId === c.id ? 'selected' : ''}`}
@@ -1028,7 +1133,11 @@ export function TakeoffEditor({
                   </p>
                 )}
               </div>
-              <footer className="room-list-footer">このページの部屋・個数を表示</footer>
+              <footer className="room-list-footer">
+                {changed
+                  ? '編集中の内容を保存すると並べ替えできます'
+                  : '部屋をドラッグで並べ替え・自動保存'}
+              </footer>
             </>
           )}
         </aside>

@@ -355,6 +355,7 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     assert.equal(manual.revision, 1)
     s.close()
     const db = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
+    db.exec('ALTER TABLE drawing_pages DROP COLUMN roomOrder')
     db.pragma('user_version=20')
     assert.throws(() => validateWalls(db), /v21/)
     const originalBodies = db.prepare('SELECT * FROM wall_layouts ORDER BY id').all()
@@ -365,6 +366,7 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     assert.deepEqual(check.prepare('SELECT * FROM wall_layouts ORDER BY id').all(), originalBodies)
     check.close()
     const v19 = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
+    v19.exec('ALTER TABLE drawing_pages DROP COLUMN roomOrder')
     v19.pragma('user_version=19')
     assert.throws(() => validateWalls(v19), /v20/)
     v19.prepare('DELETE FROM wall_layouts WHERE id IN (?,?)').run(tileDoc.id, protectionDoc.id)
@@ -377,13 +379,13 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     oldData.close()
     const legacy = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
     legacy.exec(
-      'DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; PRAGMA user_version=18'
+      'ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; PRAGMA user_version=18'
     )
     const rows = legacy.prepare('SELECT * FROM materials ORDER BY id').all()
     legacy.close()
     s = new Storage(join(folder, 'app'))
     const after = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
-    assert.equal(after.pragma('user_version', { simple: true }), 21)
+    assert.equal(after.pragma('user_version', { simple: true }), 22)
     assert.deepEqual(
       (after.prepare('SELECT * FROM materials ORDER BY id').all() as any[]).map(
         ({ wallpaper, ...rest }) => rest
@@ -392,7 +394,7 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     )
     after.close()
     assert.ok(
-      readdirSync(join(folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v21-'))
+      readdirSync(join(folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v22-'))
     )
   } finally {
     s.close()

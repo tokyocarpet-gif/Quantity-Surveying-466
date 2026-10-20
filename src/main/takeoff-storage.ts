@@ -15,6 +15,8 @@ import {
   netQuantity,
   numberedRoomName,
   pageAddressSchema,
+  roomOrderSchema,
+  reorderRoomsSchema,
   quantityRows,
   roomQuantities,
   scaleFromCalibration,
@@ -63,7 +65,13 @@ export function readTakeoff(db: Database.Database, input: unknown): PageState {
   const row = db
     .prepare('SELECT * FROM drawing_pages WHERE drawingId=? AND pageNumber=?')
     .get(address.drawingId, address.pageNumber) as
-    { scaleRatio: number | null; calibration: string | null; revision: number } | undefined
+    | {
+        scaleRatio: number | null
+        calibration: string | null
+        revision: number
+        roomOrder?: string
+      }
+    | undefined
   const rooms = (
     db
       .prepare('SELECT * FROM rooms WHERE drawingId=? AND pageNumber=? ORDER BY rowid')
@@ -77,6 +85,12 @@ export function readTakeoff(db: Database.Database, input: unknown): PageState {
     finishes: JSON.parse(r.finishes),
     sleeveWalls: r.sleeveWalls === undefined ? [] : JSON.parse(r.sleeveWalls)
   }))
+  const order = roomOrderSchema.parse(JSON.parse(row?.roomOrder ?? '[]'))
+  const positions = new Map(order.map((id, index) => [id, index]))
+  rooms.sort(
+    (a, b) =>
+      (positions.get(a.groupId) ?? order.length) - (positions.get(b.groupId) ?? order.length)
+  )
   const items = db
     .prepare('SELECT * FROM takeoff_items WHERE drawingId=? AND pageNumber=? ORDER BY rowid')
     .all(address.drawingId, address.pageNumber) as TakeoffItem[]
@@ -95,6 +109,32 @@ export function readTakeoff(db: Database.Database, input: unknown): PageState {
     items,
     deductions
   }
+}
+
+// Reordering touches only page metadata: quantities, geometry and group membership stay intact.
+export function reorderRooms(db: Database.Database, raw: unknown): PageState {
+  const input = reorderRoomsSchema.parse(raw)
+  return db.transaction(() => {
+    const before = readTakeoff(db, { drawingId: input.drawingId, pageNumber: input.pageNumber })
+    if (input.expectedRevision !== before.revision)
+      throw new Error(
+        '別の操作で数量が更新されています。ページを開き直してから並べ替えてください。'
+      )
+    const current = [...new Set(before.rooms.map((r) => r.groupId))]
+    if (
+      input.groupIds.length !== current.length ||
+      input.groupIds.some((id) => !current.includes(id))
+    )
+      throw new Error('このページの部屋をすべて指定してください。')
+    if (current.every((id, index) => id === input.groupIds[index])) return before
+    db.prepare(
+      'UPDATE drawing_pages SET roomOrder=?,revision=revision+1 WHERE drawingId=? AND pageNumber=?'
+    ).run(JSON.stringify(input.groupIds), input.drawingId, input.pageNumber)
+    db.prepare(
+      'UPDATE projects SET updatedAt=? WHERE id=(SELECT projectId FROM drawings WHERE id=?)'
+    ).run(new Date().toISOString(), input.drawingId)
+    return readTakeoff(db, { drawingId: input.drawingId, pageNumber: input.pageNumber })
+  })()
 }
 
 export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPreview {

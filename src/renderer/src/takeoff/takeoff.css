@@ -157,6 +157,23 @@
 .room-list-card:hover {
   background: #f7faf8;
 }
+.room-list-card[draggable='true'] {
+  cursor: grab;
+}
+.room-list-card.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+.room-list-card.drop-before {
+  box-shadow: 0 -3px 0 #508969;
+}
+.room-list-card.drop-after {
+  box-shadow: 0 3px 0 #508969;
+}
+.room-drag-grip {
+  flex-shrink: 0;
+  color: #8b9e93;
+}
 .room-list-card.selected {
   background: #f2f8f4;
   border-color: #91bea5;

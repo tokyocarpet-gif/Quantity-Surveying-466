@@ -189,6 +189,7 @@ function registerIpc(): void {
   handle('materials:read', (id) => storage.readMaterials(id))
   handle('materials:change', (input) => storage.changeMaterials(input))
   handle('takeoff:read', (address) => storage.readTakeoff(address))
+  handle('takeoff:reorderRooms', (input) => storage.reorderRooms(input))
   handle('takeoff:preview', (input) => storage.previewTakeoff(input))
   handle('takeoff:apply', (input) => storage.applyTakeoff(input))
   handle('selection:save', (value) => storage.saveSelection(value))

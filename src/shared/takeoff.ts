@@ -193,6 +193,18 @@ export interface PageState {
 export const pageAddressSchema = z
   .object({ drawingId: idSchema, pageNumber: z.number().int().min(1).max(100000) })
   .strict()
+export const roomOrderSchema = z
+  .array(idSchema)
+  .max(100000)
+  .refine((ids) => new Set(ids).size === ids.length, '部屋の並び順が重複しています。')
+export const reorderRoomsSchema = pageAddressSchema
+  .extend({
+    expectedRevision: z.number().int().nonnegative(),
+    groupIds: roomOrderSchema
+  })
+  .strict()
+export type ReorderRooms = z.infer<typeof reorderRoomsSchema>
+
 export const changeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('count'), id: idSchema, input: countInputSchema }).strict(),
   z.object({ kind: z.literal('deleteCount'), id: idSchema }).strict(),

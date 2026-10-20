@@ -307,8 +307,28 @@ export function aggregateSummary(
     roomLabel: g.rooms.size > 1 ? `${g.rooms.size}部屋` : g.row.roomLabel,
     location: g.locations.size > 1 ? `${g.locations.size}図面ページ` : g.row.location
   }))
+  const drawingOrder = new Map<string, number>()
+  const roomSources = new Map<string, SummarySource>()
+  for (const s of filtered) {
+    if (!drawingOrder.has(s.drawingId)) drawingOrder.set(s.drawingId, drawingOrder.size)
+    const key = s.groupId ?? `${s.drawingId}:${s.pageNumber}:unassigned`
+    if (!roomSources.has(key)) roomSources.set(key, s)
+  }
+  const roomOrder = new Map(
+    [...roomSources.entries()]
+      .sort(
+        ([, a], [, b]) =>
+          drawingOrder.get(a.drawingId)! - drawingOrder.get(b.drawingId)! ||
+          a.pageNumber - b.pageNumber ||
+          (a.roomOrdinal || Number.MAX_SAFE_INTEGER) - (b.roomOrdinal || Number.MAX_SAFE_INTEGER)
+      )
+      .map(([key], index) => [key, index])
+  )
   rows.sort(
     (a, b) =>
+      (request.view === 'room' || request.view === 'room-finish'
+        ? roomOrder.get(a.sectionKey)! - roomOrder.get(b.sectionKey)!
+        : 0) ||
       a.section.localeCompare(b.section, 'ja') ||
       (request.view === 'room' || request.view === 'drawing'
         ? a.sectionKey.localeCompare(b.sectionKey)

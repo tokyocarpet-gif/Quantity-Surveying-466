@@ -170,7 +170,40 @@ test('更新したひな形の列位置に転記し、表紙の文言・日付�
     assert.match(at(detail, `C${row}`), /&apos;表紙&apos;!C15/)
   assert.ok(detail.indexOf('</headerFooter>') < detail.indexOf('<rowBreaks'))
   assert.match(detail, /<rowBreaks count="5" manualBreakCount="5">/)
+  assert.equal(
+    Array.from(detail.matchAll(/<rowBreaks\b/g)).length,
+    1,
+    'Excelで修復されないよう改ページ設定は1つだけにする'
+  )
   assert.match(detail, /<brk id="125" max="10" man="1"/)
+})
+
+test('10月17日版の見出し・結合と表紙の印刷範囲を保持し、内訳は出力全ページを印刷する', () => {
+  const template = new AdmZip(summaryTemplateBytes())
+  const output = new AdmZip(renderSummaryXlsx(report([source()]), '内装工事', emptyCompany()))
+  const strings = Array.from(
+    template.readAsText('xl/sharedStrings.xml').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g),
+    (m) =>
+      Array.from(
+        m[1].replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g, '').matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g),
+        (t) => t[1]
+      ).join('')
+  )
+  const content = (sheet: number, address: string) => {
+    const xml = output.readAsText(`xl/worksheets/sheet${sheet}.xml`)
+    const c = xml.match(new RegExp(`<c\\b[^>]*\\br="${address}"[^>]*>[\\s\\S]*?</c>`))?.[0] ?? ''
+    return strings[Number(c.match(/<v>(\d+)<\/v>/)?.[1])]
+  }
+  assert.equal(content(1, 'F21'), '数量')
+  assert.equal(content(1, 'H21'), '単価')
+  assert.equal(content(1, 'F33'), '合計')
+  for (const row of [2, 27, 52, 77, 102, 127]) assert.equal(content(2, `H${row}`), '単価')
+  const detail = output.readAsText('xl/worksheets/sheet2.xml')
+  assert.match(detail, /<mergeCell ref="B2:C2"/)
+  assert.match(detail, /<mergeCell ref="D2:E2"/)
+  const book = output.readAsText('xl/workbook.xml')
+  assert.match(book, /表紙!\$A\$1:\$K\$36/)
+  assert.match(book, /内訳書!\$A\$1:\$K\$150/)
 })
 test('長文は元の空欄行を使い、6ページを超えたときだけ同じ25行のページを追加する', () => {
   const input = report(
@@ -194,6 +227,7 @@ test('長文は元の空欄行を使い、6ページを超えたときだけ同�
   assert.equal(new Set(cells).size, cells.length)
   assert.match(xml, /<mergeCell ref="I275:J275"/)
   assert.match(xml, /<brk id="250" max="10" man="1"/)
+  assert.equal(Array.from(xml.matchAll(/<rowBreaks\b/g)).length, 1)
   assert.match(xml, /C253:C274/)
   assert.match(xml, /G253:G275/)
   assert.match(xml, /SUM\(I253:I274\)/)
@@ -205,8 +239,8 @@ test('長文は元の空欄行を使い、6ページを超えたときだけ同�
     geometry(xml).styles.filter((s) => Number(s[0].match(/\d+/)![0]) <= 150),
     before.styles.filter((s) => Number(s[0].match(/\d+/)![0]) <= 150)
   )
-  const long = '長い仕様の確認。'.repeat(60)
-  const longLayout = summaryWorkbookLayout(report([source({ specification: long })]), '工事')
+  const long = '長い品名の確認。'.repeat(60)
+  const longLayout = summaryWorkbookLayout(report([source({ finish: long })]), '工事')
   const entries = longLayout.pages.flatMap((p) => p.entries)
   assert.equal(entries.filter((e) => e.quantity !== null).length, 1)
   assert.ok(
@@ -217,6 +251,47 @@ test('長文は元の空欄行を使い、6ページを超えたときだけ同�
   )
   assert.equal(longLayout.pages.length, 6)
 })
+test('規格は表示せず余分な行を使わないが、規格違いの数量・金額は混ぜない', () => {
+  const r = report([
+    source({ specification: '規格A'.repeat(100), rawNet: 1.04 }),
+    source({ specification: '規格B', rawNet: 2.04 }),
+    source({ finish: 'クロス', category: 'wall', specification: '規格C', rawNet: 3.04 })
+  ])
+  const before = JSON.stringify(r)
+  const layout = summaryWorkbookLayout(r, '内装工事')
+  const entries = layout.pages.flatMap((p) => p.entries)
+  assert.equal(entries.length, 3)
+  assert.deepEqual(
+    entries.map((e) => e.row),
+    [4, 5, 6]
+  )
+  assert.equal(layout.grouped.length, 3)
+  assert.equal(layout.total, 600)
+  assert.equal(layout.usedPages, 1)
+  assert.deepEqual(entries.map((e) => e.quantity).sort(), [1, 2, 3])
+  const xml = new AdmZip(renderSummaryXlsx(r, '内装工事', emptyCompany())).readAsText(
+    'xl/worksheets/sheet2.xml'
+  )
+  assert.ok(!xml.includes('規格A') && !xml.includes('規格B') && !xml.includes('規格C'))
+  assert.equal(JSON.stringify(r), before)
+})
+
+test('どの集計表示からExcel保存しても、名前順ではなく拾い出しの部屋順を使う', () => {
+  const sources = [
+    source({ groupId: randomUUID(), roomName: 'A室', roomOrdinal: 3 }),
+    source({ groupId: randomUUID(), roomName: 'Z室', roomOrdinal: 1 }),
+    source({ groupId: randomUUID(), roomName: 'M室', roomOrdinal: 2 })
+  ]
+  for (const view of summaryViews) {
+    const layout = summaryWorkbookLayout(report(sources, view), '工事')
+    assert.deepEqual(
+      layout.pages.flatMap((p) => p.entries).map((e) => e.room),
+      ['Z室', 'M室', 'A室']
+    )
+    assert.equal(layout.total, 3720)
+  }
+})
+
 test('数式文字列を安全に転記し、負数量・0円・未設定単価を扱い、Excel精度の上限を検証する', () => {
   const r = report([
     source({ finish: '=HYPERLINK("bad") & <材料>', rawNet: -1.25 }),
