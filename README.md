@@ -31,7 +31,7 @@ PDF図面から内装の数量を拾い出し、集計・見積・床材割付�
 
 ## 開発起動
 
-Node.js 24.15.0（`.nvmrc`）とGitを用意し、WindowsではPowerShell、macOSではターミナルで実行します。
+Node.js 24.22.1（`.nvmrc`）とGitを用意し、WindowsではPowerShell、macOSではターミナルで実行します。macOSのnvmでは、このフォルダで `nvm install` → `nvm use` を実行してください。nvm-windowsでは `nvm install 24.22.1` → `nvm use 24.22.1` と指定します。
 
 ```sh
 git clone https://github.com/tokyocarpet-gif/Quantity-Surveying-466.git
@@ -43,6 +43,8 @@ npm run dev
 WindowsのPowerShellでスクリプト実行ポリシーによるエラーが出る場合は、`npm` を `npm.cmd` に置き換えて実行してください。取得済みの環境を更新するときは、アプリを終了して `git pull --ff-only` → `npm ci` → `npm run dev` の順で実行します。
 
 `npm ci` ではElectronの本体取得、SQLiteのElectron向けビルド、PDF.jsのフォント・CMap・WASMの配置も行います。ネイティブ依存がOSごとに異なるため、`node_modules` をWindowsとMacの間でコピーしないでください。
+
+v0.32.1のセキュリティ更新内容と、Electron内蔵Node.jsの修正版待ちについては、[セキュリティ更新記録](docs/SECURITY_UPDATE_2026-10-23.md)を参照してください。開発用Node.jsの更新だけでは、インストール済みアプリ内のNode.jsは更新されません。
 
 ## 現在の機能
 

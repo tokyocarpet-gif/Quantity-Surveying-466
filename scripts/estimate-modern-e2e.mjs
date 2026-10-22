@@ -208,10 +208,11 @@ try {
   await page.getByRole('button', { name: '閉じる', exact: true }).click()
   await app.evaluate(({ app }) => {
     app.on('web-contents-created', (_event, wc) => {
-      wc.print = (options, callback) => {
+      wc.print = async (options, callback) => {
         globalThis.__estimatePrint = {
           options,
-          html: decodeURIComponent(wc.getURL().split(',').slice(1).join(','))
+          // The print document is loaded from a temporary file, not a data URL.
+          html: await wc.executeJavaScript('document.documentElement.outerHTML')
         }
         callback(true, '')
       }
