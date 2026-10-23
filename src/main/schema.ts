@@ -55,8 +55,17 @@ export const ROOM_ORDER_SQL = `
 ALTER TABLE drawing_pages ADD COLUMN roomOrder TEXT NOT NULL DEFAULT '[]';
 PRAGMA user_version = 22;
 `
+export const ROOM_FLOOR_SQL = `
+ALTER TABLE rooms ADD COLUMN floor TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 23;
+`
 export const WALL_PANEL_SQL = `PRAGMA user_version = 20;`
+export const DIMENSION_LINES_SQL = `
+ALTER TABLE drawing_pages ADD COLUMN dimensionLines TEXT NOT NULL DEFAULT '[]';
+PRAGMA user_version = 24;
+`
 export const HERRINGBONE_SQL = `PRAGMA user_version = 18;`
+export const HEXAGON_SQL = `PRAGMA user_version = 25;`
 
 export function initializeSchema(db: Database.Database, version: number): void {
   db.transaction(() => {
@@ -82,5 +91,8 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 20) db.exec(WALL_PANEL_SQL)
     if (version < 21) db.exec(WALL_START_SIDE_SQL)
     if (version < 22) db.exec(ROOM_ORDER_SQL)
+    if (version < 23) db.exec(ROOM_FLOOR_SQL)
+    if (version < 24) db.exec(DIMENSION_LINES_SQL)
+    if (version < 25) db.exec(HEXAGON_SQL)
   })()
 }

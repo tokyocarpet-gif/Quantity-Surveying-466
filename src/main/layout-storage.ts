@@ -87,5 +87,10 @@ export function validateLayouts(db: Database.Database): void {
       parsed.body.tilePattern === 'herringbone'
     )
       throw new Error('ヘリンボーンはDB v18以降で保存してください。')
+    if (
+      (db.pragma('user_version', { simple: true }) as number) < 25 &&
+      parsed.body.tilePattern === 'hexagon'
+    )
+      throw new Error('ヘキサゴンはDB v25以降で保存してください。')
   }
 }

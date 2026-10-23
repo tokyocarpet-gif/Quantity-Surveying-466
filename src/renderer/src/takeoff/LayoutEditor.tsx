@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, RotateCcw } from 'lucide-react'
 import {
   computeLayout,
+  hexagonHeight,
   adjustRollSeam,
   defaultLayout,
   layoutBodySchema,
@@ -160,7 +161,9 @@ export function LayoutEditor({
   }, [room.id, projectId])
   const isRoll = body.layoutType !== 'tile'
   const isHerringbone = !isRoll && body.tilePattern === 'herringbone'
-  const needsDimensions = body.widthMm === '' || (!isRoll && body.heightMm === '')
+  const isHexagon = !isRoll && body.tilePattern === 'hexagon'
+  const isMotif = isHerringbone || isHexagon
+  const needsDimensions = body.widthMm === '' || (!isRoll && !isHexagon && body.heightMm === '')
   const computed = useMemo(() => {
     if (needsDimensions) return { result: null, body: null, error: '' }
     const parsed = layoutBodySchema.safeParse({
@@ -205,7 +208,10 @@ export function LayoutEditor({
   const dirty = configurationDirty || drawingBoundary
   const change = (update: Partial<LayoutDraft>): void => {
     setHistory((h) => [...h.slice(-49), body])
-    setBody({ ...body, ...update })
+    const next = { ...body, ...update }
+    if (next.layoutType === 'tile' && next.tilePattern === 'hexagon')
+      next.heightMm = next.widthMm === '' ? '' : hexagonHeight(next.widthMm)
+    setBody(next)
     setNotice('')
   }
   const moveSeam = (column: number, index: number, value: number | ''): void => {
@@ -490,17 +496,30 @@ export function LayoutEditor({
             <div className="layout-grid">
               {numeric(
                 'widthMm',
-                isRoll ? `割付W（${dimensionUnit(body.layoutType)}）` : '割付の幅（mm）',
+                isRoll
+                  ? `割付W（${dimensionUnit(body.layoutType)}）`
+                  : isHexagon
+                    ? '対辺寸法W（mm）'
+                    : '割付の幅（mm）',
                 10,
                 10000
               )}
-              {numeric(
-                'heightMm',
-                isRoll
-                  ? `最大出荷L（${dimensionUnit(body.layoutType)}・任意）`
-                  : '割付の長さ（mm）',
-                10,
-                isRoll ? 1000000 : 10000
+              {isHexagon ? (
+                <label>
+                  対角寸法L（自動・mm）
+                  <output aria-label="対角寸法L">
+                    {body.widthMm === '' ? '—' : hexagonHeight(body.widthMm).toFixed(2)}
+                  </output>
+                </label>
+              ) : (
+                numeric(
+                  'heightMm',
+                  isRoll
+                    ? `最大出荷L（${dimensionUnit(body.layoutType)}・任意）`
+                    : '割付の長さ（mm）',
+                  10,
+                  isRoll ? 1000000 : 10000
+                )
               )}
               {isRoll
                 ? numeric('trimMm', '切りしろ（両端各・mm）', 0, 1000)
@@ -529,7 +548,7 @@ export function LayoutEditor({
                     ))}
                   </select>
                 </label>
-                {body.tilePattern !== 'straight' && !isHerringbone && (
+                {body.tilePattern !== 'straight' && !isMotif && (
                   <>
                     <label>
                       ずらす方向
@@ -555,6 +574,11 @@ export function LayoutEditor({
                 {isHerringbone && (
                   <p>
                     長方形の材料を90°ずつ組み合わせます。0°では材料を基準方向に対して斜め45°に配置します。目地幅も反映します。
+                  </p>
+                )}
+                {isHexagon && (
+                  <p>
+                    正六角形の向かい合う辺の距離をWに入力します。頂点どうしの距離Lは自動計算します。基準点にタイルの中心を置き、目地幅・回転・位置調整を反映します。
                   </p>
                 )}
               </>
@@ -663,7 +687,7 @@ export function LayoutEditor({
               <button
                 className={
                   body.mode === 'center' &&
-                  (isHerringbone || (body.axisX === 'joint' && body.axisY === 'joint'))
+                  (isMotif || (body.axisX === 'joint' && body.axisY === 'joint'))
                     ? 'primary'
                     : 'secondary'
                 }
@@ -671,12 +695,10 @@ export function LayoutEditor({
                   change({ mode: 'center', axisX: 'joint', axisY: 'joint', offsetX: 0, offsetY: 0 })
                 }
               >
-                {isHerringbone ? '柄の中心' : '芯割り'}
-                <span>
-                  {isHerringbone ? '中心に柄の基準点' : isRoll ? '中心に継ぎ目' : '中心に目地'}
-                </span>
+                {isMotif ? '柄の中心' : '芯割り'}
+                <span>{isMotif ? '中心に柄の基準点' : isRoll ? '中心に継ぎ目' : '中心に目地'}</span>
               </button>
-              {!isHerringbone && (
+              {!isMotif && (
                 <button
                   className={
                     body.mode === 'center' && body.axisX === 'tile' && body.axisY === 'tile'
@@ -694,13 +716,13 @@ export function LayoutEditor({
                 className={body.mode === 'wall' ? 'primary' : 'secondary'}
                 onClick={() => change({ mode: 'wall', angle: 0, offsetX: 0, offsetY: 0 })}
               >
-                {isHerringbone ? '壁を基準' : '壁寄せ'}
-                <span>{isHerringbone ? '壁の端に柄の基準点' : '壁から真物'}</span>
+                {isMotif ? '壁を基準' : '壁寄せ'}
+                <span>{isMotif ? '壁の端に柄の基準点' : '壁から真物'}</span>
               </button>
             </div>
             {body.mode === 'center' ? (
               <>
-                {!isHerringbone && (
+                {!isMotif && (
                   <div className="layout-grid">
                     {(isRoll ? (['axisX'] as const) : (['axisX', 'axisY'] as const)).map(
                       (key, i) => (

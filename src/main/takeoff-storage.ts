@@ -16,11 +16,13 @@ import {
   numberedRoomName,
   pageAddressSchema,
   roomOrderSchema,
+  dimensionLinesSchema,
   reorderRoomsSchema,
   quantityRows,
   roomQuantities,
   scaleFromCalibration,
   roomInputSchema,
+  roomLabel,
   deductionInputSchema,
   type PageState,
   type Room,
@@ -70,14 +72,16 @@ export function readTakeoff(db: Database.Database, input: unknown): PageState {
         calibration: string | null
         revision: number
         roomOrder?: string
+        dimensionLines?: string
       }
     | undefined
   const rooms = (
     db
       .prepare('SELECT * FROM rooms WHERE drawingId=? AND pageNumber=? ORDER BY rowid')
       .all(address.drawingId, address.pageNumber) as StoredRoom[]
-  ).map((r) => ({
+  ).map(({ floor, ...r }) => ({
     ...r,
+    ...(floor ? { floor } : {}),
     groupId: r.groupId ?? r.id,
     enabledCategories:
       r.enabledCategories === undefined ? [...categories] : JSON.parse(r.enabledCategories),
@@ -86,6 +90,8 @@ export function readTakeoff(db: Database.Database, input: unknown): PageState {
     sleeveWalls: r.sleeveWalls === undefined ? [] : JSON.parse(r.sleeveWalls)
   }))
   const order = roomOrderSchema.parse(JSON.parse(row?.roomOrder ?? '[]'))
+  const dimensionLines = dimensionLinesSchema.parse(JSON.parse(row?.dimensionLines ?? '[]'))
+  if (dimensionLines.length && !row?.scaleRatio) throw new Error('寸法線の縮尺が未設定です。')
   const positions = new Map(order.map((id, index) => [id, index]))
   rooms.sort(
     (a, b) =>
@@ -105,6 +111,7 @@ export function readTakeoff(db: Database.Database, input: unknown): PageState {
     calibration: row?.calibration ? JSON.parse(row.calibration) : null,
     revision: row?.revision ?? 0,
     rooms,
+    ...(dimensionLines.length ? { dimensionLines } : {}),
     counts: readCounts(db, address.drawingId, address.pageNumber),
     items,
     deductions
@@ -148,6 +155,22 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
     return previewCount(db, before, input)
   const after = structuredClone(before)
   const change = input.change
+  if (change.kind === 'dimension' || change.kind === 'deleteDimension') {
+    if (!after.scaleRatio) throw new Error('先にこのページの縮尺を設定してください。')
+    const lines = after.dimensionLines ?? []
+    if (change.kind === 'dimension') {
+      const index = lines.findIndex((line) => line.id === change.input.id)
+      if (index < 0) lines.push(change.input)
+      else lines[index] = change.input
+    } else {
+      const index = lines.findIndex((line) => line.id === change.id)
+      if (index < 0) throw new Error('このページに対象の寸法線がありません。')
+      lines.splice(index, 1)
+    }
+    after.dimensionLines = dimensionLinesSchema.parse(lines)
+    after.revision++
+    return { before, after, rows: [], warnings: [] }
+  }
   const warnings: string[] = []
   const affectedRooms = new Set<string>()
   const requireRoom = (id: string): Room => {
@@ -176,12 +199,19 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
       )
     const previousGroup = index < 0 ? change.id : after.rooms[index].groupId
     const duplicates = after.rooms.filter(
-      (r) => r.name === change.input.name && r.groupId !== previousGroup
+      (r) =>
+        r.name === change.input.name &&
+        (r.floor ?? '') === (change.input.floor ?? '') &&
+        r.groupId !== previousGroup
     )
     let groupId = previousGroup
     if (change.mergeInto) {
       const target = requireRoom(change.mergeInto)
-      if (target.name !== change.input.name || target.groupId === previousGroup)
+      if (
+        target.name !== change.input.name ||
+        (target.floor ?? '') !== (change.input.floor ?? '') ||
+        target.groupId === previousGroup
+      )
         throw new Error('統合先の部屋名・範囲を確認してください。')
       groupId = target.groupId
       warnings.push(
@@ -196,12 +226,17 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
       duplicates.length && !change.mergeInto
         ? numberedRoomName(
             change.input.name,
-            after.rooms.filter((r) => r.groupId !== previousGroup).map((r) => r.name)
+            after.rooms
+              .filter(
+                (r) => r.groupId !== previousGroup && (r.floor ?? '') === (change.input.floor ?? '')
+              )
+              .map((r) => r.name)
           )
         : change.input.name
     if (name !== change.input.name) warnings.push(`別の部屋として「${name}」の名前で登録します。`)
     for (const part of after.rooms.filter((r) => r.groupId === previousGroup)) {
       part.name = name
+      part.floor = change.input.floor
       part.groupId = groupId
       affectedRooms.add(part.id)
     }
@@ -373,7 +408,7 @@ export function previewTakeoff(db: Database.Database, raw: unknown): TakeoffPrev
         )
         .reduce((n, i) => n + netQuantity(i, page.deductions), 0)
     mergeSummary = {
-      name: target.name,
+      name: roomLabel(target),
       rows: categories.flatMap((c) => {
         const units = new Set(
           [...before.items, ...after.items]
@@ -417,6 +452,17 @@ export function applyTakeoff(db: Database.Database, raw: unknown): PageState {
       calibration: after.calibration ? JSON.stringify(after.calibration) : null,
       revision: after.revision
     })
+    db.prepare('UPDATE drawing_pages SET dimensionLines=? WHERE drawingId=? AND pageNumber=?').run(
+      JSON.stringify(after.dimensionLines ?? []),
+      after.drawingId,
+      after.pageNumber
+    )
+    if (input.change.kind === 'dimension' || input.change.kind === 'deleteDimension') {
+      db.prepare(
+        'UPDATE projects SET updatedAt=? WHERE id=(SELECT projectId FROM drawings WHERE id=?)'
+      ).run(new Date().toISOString(), after.drawingId)
+      return readTakeoff(db, { drawingId: after.drawingId, pageNumber: after.pageNumber })
+    }
     for (const d of before.deductions)
       if (!after.deductions.some((n) => n.id === d.id))
         db.prepare('DELETE FROM deductions WHERE id=?').run(d.id)
@@ -428,9 +474,10 @@ export function applyTakeoff(db: Database.Database, raw: unknown): PageState {
         db.prepare('DELETE FROM rooms WHERE id=?').run(r.id)
     for (const room of after.rooms)
       db.prepare(
-        'INSERT INTO rooms(id,drawingId,pageNumber,name,color,heightMm,polygon,finishes,enabledCategories,groupId,sleeveWalls,geometryType) VALUES (@id,@drawingId,@pageNumber,@name,@color,@heightMm,@polygon,@finishes,@enabledCategories,@groupId,@sleeveWalls,@geometryType) ON CONFLICT(id) DO UPDATE SET name=excluded.name,color=excluded.color,heightMm=excluded.heightMm,polygon=excluded.polygon,finishes=excluded.finishes,enabledCategories=excluded.enabledCategories,groupId=excluded.groupId,sleeveWalls=excluded.sleeveWalls,geometryType=excluded.geometryType'
+        'INSERT INTO rooms(id,drawingId,pageNumber,name,floor,color,heightMm,polygon,finishes,enabledCategories,groupId,sleeveWalls,geometryType) VALUES (@id,@drawingId,@pageNumber,@name,@floor,@color,@heightMm,@polygon,@finishes,@enabledCategories,@groupId,@sleeveWalls,@geometryType) ON CONFLICT(id) DO UPDATE SET name=excluded.name,floor=excluded.floor,color=excluded.color,heightMm=excluded.heightMm,polygon=excluded.polygon,finishes=excluded.finishes,enabledCategories=excluded.enabledCategories,groupId=excluded.groupId,sleeveWalls=excluded.sleeveWalls,geometryType=excluded.geometryType'
       ).run({
         ...room,
+        floor: room.floor ?? '',
         geometryType: room.geometryType ?? 'area',
         polygon: JSON.stringify(room.polygon),
         finishes: JSON.stringify(room.finishes),
@@ -506,6 +553,7 @@ export function validateTakeoffData(db: Database.Database): void {
       idSchema.parse(room.id)
       roomInputSchema.parse({
         name: room.name,
+        floor: room.floor,
         color: room.color,
         heightMm: room.heightMm,
         polygon: room.polygon,
@@ -515,7 +563,13 @@ export function validateTakeoffData(db: Database.Database): void {
         enabledCategories: room.enabledCategories
       })
       idSchema.parse(room.groupId)
-      if (state.rooms.some((r) => r.groupId === room.groupId && r.name !== room.name))
+      if (
+        state.rooms.some(
+          (r) =>
+            r.groupId === room.groupId &&
+            (r.name !== room.name || (r.floor ?? '') !== (room.floor ?? ''))
+        )
+      )
         throw new Error('統合した部屋の名前が一致しません。')
       if (
         (db.pragma('user_version', { simple: true }) as number) >= 3 &&

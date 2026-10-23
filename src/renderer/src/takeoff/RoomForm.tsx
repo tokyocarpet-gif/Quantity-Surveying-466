@@ -18,6 +18,7 @@ import { quantityText } from './Dialogs'
 import { errorMessage } from '../error-message'
 export function RoomForm({
   room,
+  initialFloor = '',
   geometryType = room?.geometryType,
   materials,
   groupSize,
@@ -33,6 +34,7 @@ export function RoomForm({
   cancel
 }: {
   room: Room | null
+  initialFloor?: string
   geometryType?: RoomInput['geometryType']
   materials: Material[]
   groupSize: number
@@ -53,6 +55,7 @@ export function RoomForm({
     : [...categories]
   const [error, setError] = useState('')
   const [name, setName] = useState(room?.name ?? '')
+  const [floor, setFloor] = useState(room ? (room.floor ?? '') : initialFloor)
   const [enabled, setEnabled] = useState(
     room?.enabledCategories ?? (isWall ? ['wall'] : [...categories])
   )
@@ -81,6 +84,7 @@ export function RoomForm({
         try {
           const input = roomInputSchema.parse({
             name: form.get('name'),
+            ...(floor.trim() ? { floor: floor.trim() } : {}),
             color: form.get('color'),
             heightMm: Number(height),
             polygon,
@@ -113,6 +117,17 @@ export function RoomForm({
             : '拾う部位を選び、平面の面積と外周から計算します。'}
         </p>
         <label>
+          階
+          <input
+            aria-label="部屋の階"
+            value={floor}
+            onChange={(e) => setFloor(e.target.value)}
+            list="takeoff-floor-options"
+            maxLength={40}
+            placeholder="未設定（例：1階）"
+          />
+        </label>
+        <label>
           部屋名
           <input
             aria-label="部屋名"
@@ -128,7 +143,7 @@ export function RoomForm({
         </label>
         {groupSize > 1 && (
           <p className="panel-description">
-            部屋名は統合した全{groupSize}
+            階・部屋名は統合した全{groupSize}
             範囲に反映します。部位・高さ・仕上げ・形状はこの範囲だけを変更します。
           </p>
         )}

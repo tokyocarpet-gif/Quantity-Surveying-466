@@ -65,6 +65,7 @@ export function layoutPrintHtml(report: Report): string {
     ${roll ? `\n出荷方法：${roll.freeCut ? 'フリーカット' : '幅なり出荷'} ／ 最大出荷 W ${dimension(roll.maxWidthMm, 'W')} ／ L ${body.heightMm === null ? '未設定' : dimension(body.heightMm)}\n割付W ${dimension(body.widthMm, 'W')} ／ 切りしろ 両端各 ${body.trimMm} mm` : ''}
     </div><p>配置：${body.mode === 'wall' ? `壁${body.wallIndex + 1}${body.tilePattern === 'herringbone' && !roll ? 'を柄の基準にする' : 'から壁寄せ'}` : '部屋中心基準'} ／ 回転 ${body.angle}° ／ 横移動 ${body.offsetX} mm ／ 縦移動 ${body.offsetY} mm</p>
     ${body.tilePattern === 'herringbone' && !roll ? '<p>柄の基準点は2枚を組み合わせる角です。0°では基準方向に対して材料を斜め45°に配置します。</p>' : ''}
+    ${body.tilePattern === 'hexagon' && !roll ? '<p>正六角形：Wは対辺寸法、Lは対角寸法（自動計算）です。基準点にタイルの中心を置き、壁際は切り物になります。</p>' : ''}
     ${materials}<p class="metrics">${metrics}</p>
     <p class="note">${roll ? '規格のW・Lは最大出荷寸法です。最大L全量を購入する計算ではありません。使用Lには切りしろを含みます。フリーカットの使用Wは実測幅をmm単位で切り上げます。幅なり出荷は最大出荷Wで算定します。' : '使用元材は各切り物へ1枚ずつ使用する場合の枚数です。'}<br>端材の再利用・柄合わせ・幅方向の重ね代・穴の控除は含みません。表示は丸めていますが計算は元の精度を使用します。</p>
     <p class="note">${text(report.company)}</p></section></body></html>`

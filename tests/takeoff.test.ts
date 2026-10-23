@@ -19,6 +19,9 @@ import {
   roomQuantities,
   wallLineLength,
   roomInputSchema,
+  dimensionLengthMm,
+  dimensionOffset,
+  dimensionLinesSchema,
   scaleFromCalibration,
   scaleDenominator,
   netQuantity,
@@ -82,6 +85,215 @@ async function fixture() {
   }
   return { folder, storage, drawing, address, read, mutation, apply, scale, room, cleanup }
 }
+
+test('確認寸法は数量・集計を変えず、移動・縮尺再設定・再起動・バックアップ復元・削除に対応する', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const room = f.room()
+    const wall = f.read().items.find((i) => i.roomId === room && i.category === 'wall')!
+    f.apply({ kind: 'fixed', itemId: wall.id, quantity: 50 })
+    f.apply({
+      kind: 'deduction',
+      id: randomUUID(),
+      input: { targetItemId: wall.id, name: '開口', widthMm: 900, heightMm: 2000, count: 1 }
+    })
+    const before = f.read()
+    const request = summaryRequestSchema.parse({ projectId: f.drawing.projectId })
+    const report = f.storage.readSummary(request)
+    const line = {
+      id: randomUUID(),
+      points: [polygon[0], polygon[1]] as [Point, Point],
+      offset: -30
+    }
+    const preview = f.storage.previewTakeoff(f.mutation({ kind: 'dimension', input: line }))
+    assert.deepEqual(preview.rows, [])
+    assert.deepEqual(f.read(), before)
+    f.apply({ kind: 'dimension', input: line })
+    const after = f.read()
+    assert.deepEqual(after.rooms, before.rooms)
+    assert.deepEqual(after.items, before.items)
+    assert.deepEqual(after.deductions, before.deductions)
+    assert.deepEqual(after.counts, before.counts)
+    const nextReport = f.storage.readSummary(request)
+    assert.deepEqual({ ...nextReport, generatedAt: report.generatedAt }, report)
+    assert.equal(dimensionLengthMm(after.dimensionLines![0], after.scaleRatio!), 4000)
+    assert.throws(() =>
+      f.storage.applyTakeoff({
+        ...f.address,
+        expectedRevision: before.revision,
+        change: { kind: 'deleteDimension', id: line.id }
+      })
+    )
+    f.apply({ kind: 'dimension', input: { ...line, offset: 50 } })
+    assert.equal(f.read().dimensionLines!.length, 1)
+    f.apply({ kind: 'scale', points: line.points, lengthMm: 8000 })
+    assert.equal(dimensionLengthMm(f.read().dimensionLines![0], f.read().scaleRatio!), 8000)
+    const saved = f.read()
+    const backup = join(f.folder, 'dimensions.sekisan-backup')
+    await f.storage.createBackup(backup)
+    f.apply({ kind: 'deleteDimension', id: line.id })
+    assert.equal(f.read().dimensionLines, undefined)
+    await f.storage.restoreBackup(backup)
+    assert.deepEqual(f.read(), saved)
+    assert.equal(f.storage.readTakeoff({ ...f.address, pageNumber: 2 }).dimensionLines, undefined)
+    f.storage.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readTakeoff(f.address), saved)
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('確認寸法の無効な座標・重複ID・過大件数・縮尺未設定を拒否する', async () => {
+  const f = await fixture()
+  try {
+    const line = { id: randomUUID(), points: [polygon[0], polygon[1]] as [Point, Point], offset: 0 }
+    assert.throws(() => f.apply({ kind: 'dimension', input: line }), /縮尺/)
+    f.scale()
+    assert.throws(() =>
+      f.apply({ kind: 'dimension', input: { ...line, points: [polygon[0], polygon[0]] } })
+    )
+    assert.throws(() => f.apply({ kind: 'dimension', input: { ...line, offset: Infinity } }))
+    assert.throws(() => f.apply({ kind: 'deleteDimension', id: line.id }))
+    assert.equal(dimensionLinesSchema.safeParse([line, line]).success, false)
+    assert.equal(
+      dimensionLinesSchema.safeParse(
+        Array.from({ length: 501 }, () => ({ ...line, id: randomUUID() }))
+      ).success,
+      false
+    )
+    assert.equal(dimensionOffset(line.points, { x: 200, y: 70 }), -30)
+    const diagonal = {
+      ...line,
+      points: [
+        { x: 0, y: 0 },
+        { x: 300, y: 400 }
+      ] as [Point, Point]
+    }
+    assert.equal(dimensionLengthMm(diagonal, 0.01), 5000)
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('v23から寸法線対応への移行で階・部屋・数量を維持する', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    f.apply({ kind: 'room', id: randomUUID(), input: { ...roomInput(), floor: '2階' } })
+    const before = f.read()
+    f.storage.close()
+    const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
+    db.exec('ALTER TABLE drawing_pages DROP COLUMN dimensionLines; PRAGMA user_version=23')
+    db.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readTakeoff(f.address), before)
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('階別の同名部屋を区別し、統合・階変更・集計・バックアップで階を保持する', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const first = randomUUID(),
+      second = randomUUID(),
+      part = randomUUID()
+    f.apply({ kind: 'room', id: first, input: { ...roomInput(), floor: '1階' } })
+    f.apply({ kind: 'room', id: second, input: { ...roomInput(), floor: '2階' } })
+    assert.deepEqual(
+      f.read().rooms.map((r) => r.name),
+      ['会議室', '会議室']
+    )
+    assert.throws(() =>
+      f.apply({ kind: 'room', id: part, input: { ...roomInput(), floor: '2階' }, mergeInto: first })
+    )
+    assert.throws(() =>
+      f.storage.previewTakeoff({
+        ...f.address,
+        expectedRevision: f.read().revision,
+        change: { kind: 'room', id: part, input: { ...roomInput(), floor: '1階' } }
+      })
+    )
+    f.apply({ kind: 'room', id: part, input: { ...roomInput(), floor: '1階' }, mergeInto: first })
+    const quantities = f.read().items
+    f.apply({ kind: 'room', id: first, input: { ...roomInput(), floor: '3階' } })
+    assert.deepEqual(
+      f
+        .read()
+        .rooms.filter((r) => r.groupId === first)
+        .map((r) => r.floor),
+      ['3階', '3階']
+    )
+    assert.deepEqual(f.read().items, quantities)
+    const report = f.storage.readSummary(
+      summaryRequestSchema.parse({ projectId: f.drawing.projectId })
+    )
+    assert.deepEqual(
+      report.rooms.map((r) => r.name),
+      ['3階 会議室', '2階 会議室']
+    )
+    const saved = f.read()
+    const backup = join(f.folder, 'floors.sekisan-backup')
+    await f.storage.createBackup(backup)
+    f.apply({ kind: 'room', id: second, input: roomInput() })
+    await f.storage.restoreBackup(backup)
+    assert.deepEqual(f.read(), saved)
+    f.storage.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readTakeoff(f.address), saved)
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
+
+test('v22から階対応へ移行しても既存の部屋・並び順・数量は変わらない', async () => {
+  const f = await fixture()
+  try {
+    f.scale()
+    const first = f.room(),
+      second = f.room()
+    f.storage.reorderRooms({
+      ...f.address,
+      expectedRevision: f.read().revision,
+      groupIds: [second, first]
+    })
+    const before = f.read()
+    f.storage.close()
+    const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
+    db.exec(
+      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; PRAGMA user_version=22'
+    )
+    db.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(reopened.readTakeoff(f.address), before)
+      assert.ok(
+        readdirSync(join(f.folder, 'app/recovery')).some((name) =>
+          name.startsWith('before-schema-v25-')
+        )
+      )
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
 
 test('部屋の並べ替えは統合範囲・数量・控除・個数を変えず、再起動とバックアップ復元でも保持する', async () => {
   const f = await fixture()
@@ -245,14 +457,16 @@ test('v21から並び順保存へ移行しても既存の部屋と数量は変�
     const before = f.read()
     f.storage.close()
     const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
-    db.exec('ALTER TABLE drawing_pages DROP COLUMN roomOrder; PRAGMA user_version=21')
+    db.exec(
+      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; PRAGMA user_version=21'
+    )
     db.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       assert.deepEqual(reopened.readTakeoff(f.address), before)
       assert.ok(
         readdirSync(join(f.folder, 'app/recovery')).some((name) =>
-          name.startsWith('before-schema-v22-')
+          name.startsWith('before-schema-v25-')
         )
       )
       assert.deepEqual(
@@ -687,7 +901,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 22)
+    assert.equal(internal.pragma('user_version', { simple: true }), 25)
   } finally {
     f.cleanup()
   }
@@ -1339,18 +1553,18 @@ test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せ
     const oldRooms = db.prepare('SELECT * FROM rooms').all()
     const oldItems = db.prepare('SELECT * FROM takeoff_items').all()
     db.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
+      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
     )
     db.pragma('user_version = 13')
     f.storage.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       const migrated = (reopened as unknown as { db: Database.Database }).db
-      assert.equal(migrated.pragma('user_version', { simple: true }), 22)
+      assert.equal(migrated.pragma('user_version', { simple: true }), 25)
       assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
       assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
       assert.ok(
-        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v22-'))
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v25-'))
       )
     } finally {
       reopened.close()

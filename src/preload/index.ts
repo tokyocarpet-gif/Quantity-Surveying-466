@@ -45,6 +45,7 @@ const api: AppApi = {
   importPdfs: (projectId) => ipcRenderer.invoke('drawing:import', projectId),
   readPdf: (id) => ipcRenderer.invoke('drawing:read', id),
   renameDrawing: (id, name) => ipcRenderer.invoke('drawing:rename', id, name),
+  reorderDrawings: (input) => ipcRenderer.invoke('drawing:reorder', input),
   deleteDrawing: (id) => ipcRenderer.invoke('drawing:delete', id),
   createBackup: () => ipcRenderer.invoke('backup:create'),
   restoreBackup: () => ipcRenderer.invoke('backup:restore'),

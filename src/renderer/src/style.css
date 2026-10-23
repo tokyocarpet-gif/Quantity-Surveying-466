@@ -626,6 +626,20 @@ small {
 .drawing-card:hover {
   border-color: #aac8bc;
 }
+.drawing-order-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+}
+.drawing-order-controls button:first-child {
+  margin-right: auto;
+  cursor: grab;
+}
+.drawing-card.drawing-drop {
+  outline: 2px solid #207964;
+  outline-offset: 2px;
+}
 .drawing-preview {
   display: flex;
   width: 100%;

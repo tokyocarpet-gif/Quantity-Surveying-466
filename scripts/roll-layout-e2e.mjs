@@ -2,6 +2,8 @@ import { exerciseLayoutPdf } from './layout-pdf-e2e.mjs'
 import { expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 export async function exerciseRollLayout(page, tileDoc, verifyRightPan, application, temporary) {
+  const metres = (value) =>
+    value.toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   await page
     .locator('.drawing-card')
     .first()
@@ -30,7 +32,7 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
       .fill(length)
     await page.getByLabel('材料のT（mm）', { exact: true }).fill(thickness)
     if (type === 'sheet') {
-      await expect(page.getByLabel('材料のW（m）', { exact: true })).toHaveValue('1.8')
+      await expect(page.getByLabel('材料のW（m）', { exact: true })).toHaveValue('1.82')
       await page.getByLabel('材料のW（m）', { exact: true }).focus()
       await expect(page.getByLabel('材料のW（m）', { exact: true })).toHaveValue('1.82')
       await page.getByLabel('材料の種類', { exact: true }).selectOption('carpet')
@@ -50,10 +52,10 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
   await page.getByLabel('割付の材料', { exact: true }).fill('長尺シート試験')
   await page.getByRole('option', { name: /長尺シート試験/ }).click()
   await expect(page.getByLabel('割付の材料の種類', { exact: true })).toHaveValue('sheet')
-  await expect(page.getByLabel('割付W（m）', { exact: true })).toHaveValue('1.8')
+  await expect(page.getByLabel('割付W（m）', { exact: true })).toHaveValue('1.82')
   await page.getByLabel('割付W（m）', { exact: true }).focus()
   await expect(page.getByLabel('割付W（m）', { exact: true })).toHaveValue('1.82')
-  await expect(page.getByLabel('最大出荷L（m・任意）', { exact: true })).toHaveValue('20.0')
+  await expect(page.getByLabel('最大出荷L（m・任意）', { exact: true })).toHaveValue('20.00')
   await expect(page.getByLabel('割付の目地幅（mm）', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: '壁寄せ 壁から真物', exact: true }).click()
   await page.getByLabel('割付の基準壁', { exact: true }).selectOption('0')
@@ -72,19 +74,19 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
     total = (count * cutLength) / 1000
   const table = page.getByRole('table', { name: 'シートの切り出し一覧', includeHidden: true })
   await expect(table.locator('tbody tr')).toHaveCount(count)
-  await expect(page.getByTestId('roll-total-length')).toHaveText(`使用L合計 ${total.toFixed(1)} m`)
+  await expect(page.getByTestId('roll-total-length')).toHaveText(`使用L合計 ${metres(total)} m`)
   await expect(page.getByTestId('roll-overlay')).toBeVisible()
   const labels = page.getByTestId('roll-sheet-dimensions')
   await expect(labels).toHaveCount(count)
-  await expect(labels.first()).toContainText('W 1.8 m')
-  await expect(labels.first()).toContainText('L 6.0 m')
+  await expect(labels.first()).toContainText('W 1.82 m')
+  await expect(labels.first()).toContainText('L 6.00 m')
   await expect(labels.first()).not.toContainText('切出し')
   await expect(labels.first()).not.toContainText('ロール')
   await expect(page.getByTestId('roll-size-summary')).toContainText(`× ${count}枚`)
-  await expect(page.getByTestId('roll-count')).toContainText('L 20.0 m')
+  await expect(page.getByTestId('roll-count')).toContainText('L 20.00 m')
   await page.getByLabel('シートの実測寸法線を表示', { exact: true }).uncheck()
   await expect(labels).toHaveCount(0)
-  await expect(page.getByTestId('roll-total-length')).toContainText(total.toLocaleString('ja-JP'))
+  await expect(page.getByTestId('roll-total-length')).toContainText(metres(total))
   await page.getByLabel('シートの実測寸法線を表示', { exact: true }).check()
   await expect(labels).toHaveCount(count)
   await page.getByRole('button', { name: '全体表示', exact: true }).click()
@@ -104,16 +106,16 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
   await page.locator('.roll-cut-list summary').click()
   await page.getByLabel('切りしろ（両端各・mm）', { exact: true }).fill('100')
   await expect(page.getByTestId('roll-total-length')).toHaveText(
-    `使用L合計 ${(total + count * 0.1).toFixed(1)} m`
+    `使用L合計 ${metres(total + count * 0.1)} m`
   )
   await page.getByRole('checkbox', { name: '最大出荷Lで継ぎ位置を自動配置', exact: true }).uncheck()
   await page.getByLabel('最大出荷L（m・任意）', { exact: true }).fill('1')
   await expect(page.getByRole('alert')).toContainText('最大出荷Lを超えるシート')
-  await expect(labels.first()).toContainText('L 6.0 m')
+  await expect(labels.first()).toContainText('L 6.00 m')
   await page.getByLabel('最大出荷L（m・任意）', { exact: true }).fill('')
   await expect(page.getByRole('alert')).toHaveCount(0)
   await expect(page.getByTestId('roll-count')).toContainText('L 未設定')
-  await expect(labels.first()).toContainText('L 6.0 m')
+  await expect(labels.first()).toContainText('L 6.00 m')
   await expect(page.getByRole('button', { name: '割り付けを保存', exact: true })).toBeEnabled()
   await page.getByRole('checkbox', { name: '最大出荷Lで継ぎ位置を自動配置', exact: true }).check()
   await page.getByRole('button', { name: '割り付けを保存', exact: true }).click()
@@ -178,7 +180,12 @@ export async function exerciseRollLayout(page, tileDoc, verifyRightPan, applicat
     page.getByRole('button', { name: 'PDFプレビュー・保存', exact: true })
   ).toBeDisabled()
   await page.getByLabel('割付W（mm）', { exact: true }).fill('2000')
-  await expect(page.getByTestId('roll-total-area')).toContainText('88.5')
+  // Mouse-drawn fixture may extend slightly beyond 6000 mm; that edge needs
+  // another full-width shipping strip even when its visible width is tiny.
+  const shippingArea = (Math.ceil(length / 2000) * 3640 * Math.ceil(width + 100 - 1e-7)) / 1e6
+  await expect(page.getByTestId('roll-total-area')).toContainText(
+    shippingArea.toLocaleString('ja-JP', { maximumFractionDigits: 1 })
+  )
   await page.getByLabel('カーペットの出荷方法', { exact: true }).selectOption('free')
   await expect(page.getByTestId('roll-total-area')).toContainText('48.6')
   await expect(page.getByTestId('roll-size-summary')).toContainText('W 2,000 mm × L 8,100 mm × 3枚')

@@ -23,6 +23,7 @@ import type {
   SummaryEdit
 } from './summary'
 import type { MaterialContext, MaterialChange } from './materials'
+import type { ReorderDrawings } from './drawing-order'
 import type { PageState, TakeoffMutation, TakeoffPreview, ReorderRooms } from './takeoff'
 export type ProjectStatus = 'active' | 'completed' | 'archived'
 export interface Client {
@@ -116,6 +117,7 @@ export interface AppApi {
   importPdfs(projectId: string): Promise<Result<ImportResult | null>>
   readPdf(id: string): Promise<Result<Uint8Array>>
   renameDrawing(id: string, name: string): Promise<Result<void>>
+  reorderDrawings(input: ReorderDrawings): Promise<Result<void>>
   deleteDrawing(id: string): Promise<Result<boolean>>
   createBackup(): Promise<Result<string | null>>
   restoreBackup(): Promise<Result<string | null>>

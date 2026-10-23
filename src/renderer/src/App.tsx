@@ -17,6 +17,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  GripVertical,
   LayoutGrid,
   LoaderCircle,
   MoreHorizontal,
@@ -96,6 +97,8 @@ export function App(): React.JSX.Element {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [draggedDrawing, setDraggedDrawing] = useState<string | null>(null)
+  const [drawingDrop, setDrawingDrop] = useState<string | null>(null)
   const [modal, setModal] = useState<ModalState>(null)
   const [companyOpen, setCompanyOpen] = useState(false)
   const [masterProject, setMasterProject] = useState<{ id: string | null } | null>(null)
@@ -147,6 +150,24 @@ export function App(): React.JSX.Element {
     data?.drawings.filter(
       (d) => d.projectId === project?.id && d.name.toLowerCase().includes(search.toLowerCase())
     ) ?? []
+  const canReorderDrawings = !!project && !busy && !search.trim() && drawings.length > 1
+  const moveDrawing = (id: string, targetId: string): void => {
+    if (!project || !canReorderDrawings || id === targetId) return
+    const expectedIds = drawings.map((d) => d.id)
+    const from = expectedIds.indexOf(id),
+      to = expectedIds.indexOf(targetId)
+    if (from < 0 || to < 0) return
+    const drawingIds = [...expectedIds]
+    drawingIds.splice(from, 1)
+    drawingIds.splice(to, 0, id)
+    void run(async () => {
+      await unwrap(
+        window.sekisan.reorderDrawings({ projectId: project.id, expectedIds, drawingIds })
+      )
+      await refresh()
+      setNotice('図面の並び順を保存しました。集計・Excelにも反映します。')
+    })
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -388,8 +409,73 @@ export function App(): React.JSX.Element {
         {project ? (
           drawings.length ? (
             <div className="drawing-grid">
-              {drawings.map((drawing) => (
-                <article className="drawing-card" key={drawing.id}>
+              {drawings.map((drawing, index) => (
+                <article
+                  className={`drawing-card ${drawingDrop === drawing.id ? 'drawing-drop' : ''}`}
+                  key={drawing.id}
+                  data-testid="drawing-card"
+                  data-drawing-id={drawing.id}
+                  onDragOver={(event) => {
+                    if (draggedDrawing && canReorderDrawings) {
+                      event.preventDefault()
+                      event.dataTransfer.dropEffect = 'move'
+                      setDrawingDrop(drawing.id)
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    if (draggedDrawing) moveDrawing(draggedDrawing, drawing.id)
+                    setDraggedDrawing(null)
+                    setDrawingDrop(null)
+                  }}
+                >
+                  <div className="drawing-order-controls">
+                    <button
+                      className="text-button"
+                      draggable={canReorderDrawings}
+                      disabled={!canReorderDrawings}
+                      aria-label={`${drawing.name}を並べ替え`}
+                      title={
+                        search.trim()
+                          ? '検索を解除すると並べ替えできます'
+                          : 'ドラッグで移動（Alt＋↑／↓でも移動できます）'
+                      }
+                      onDragStart={(event) => {
+                        setDraggedDrawing(drawing.id)
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', drawing.id)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedDrawing(null)
+                        setDrawingDrop(null)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+                          event.preventDefault()
+                          const target = drawings[index + (event.key === 'ArrowUp' ? -1 : 1)]
+                          if (target) moveDrawing(drawing.id, target.id)
+                        }
+                      }}
+                    >
+                      <GripVertical size={15} /> {index + 1} · 並べ替え
+                    </button>
+                    <button
+                      className="text-button"
+                      aria-label={`${drawing.name}を前へ`}
+                      disabled={!canReorderDrawings || index === 0}
+                      onClick={() => moveDrawing(drawing.id, drawings[index - 1].id)}
+                    >
+                      ←
+                    </button>
+                    <button
+                      className="text-button"
+                      aria-label={`${drawing.name}を後へ`}
+                      disabled={!canReorderDrawings || index === drawings.length - 1}
+                      onClick={() => moveDrawing(drawing.id, drawings[index + 1].id)}
+                    >
+                      →
+                    </button>
+                  </div>
                   <button
                     className="drawing-preview"
                     onClick={() => navigate(`/drawing/${drawing.id}`)}

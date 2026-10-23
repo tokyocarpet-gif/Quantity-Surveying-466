@@ -326,6 +326,9 @@ export function aggregateSummary(
   )
   rows.sort(
     (a, b) =>
+      (request.view === 'drawing'
+        ? drawingOrder.get(a.sectionKey)! - drawingOrder.get(b.sectionKey)!
+        : 0) ||
       (request.view === 'room' || request.view === 'room-finish'
         ? roomOrder.get(a.sectionKey)! - roomOrder.get(b.sectionKey)!
         : 0) ||

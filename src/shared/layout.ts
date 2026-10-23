@@ -14,7 +14,8 @@ export const tilePatternLabels = {
   half: '馬貼り（1/2ずらし）',
   third: '1/3ずらし',
   quarter: '1/4ずらし',
-  herringbone: 'ヘリンボーン（90°組み合わせ）'
+  herringbone: 'ヘリンボーン（90°組み合わせ）',
+  hexagon: 'ヘキサゴン（正六角形）'
 }
 const patternDivisions = { straight: 1, half: 2, third: 3, quarter: 4 }
 export const tileDimensions = {
@@ -28,7 +29,7 @@ export const tileDimensions = {
 export const layoutBodySchema = z
   .object({
     tilePattern: z
-      .enum(['straight', 'half', 'third', 'quarter', 'herringbone'])
+      .enum(['straight', 'half', 'third', 'quarter', 'herringbone', 'hexagon'])
       .default('straight'),
     staggerAxis: z.enum(['width', 'length']).default('width'),
     customPolygon: polygonSchema
@@ -95,12 +96,20 @@ export const layoutBodySchema = z
     '割付Wは最大出荷W以下で入力してください。'
   )
   .refine(
-    (b) => b.layoutType !== 'tile' || (b.heightMm !== null && b.heightMm <= 10000),
+    (b) =>
+      b.layoutType !== 'tile' ||
+      b.tilePattern === 'hexagon' ||
+      (b.heightMm !== null && b.heightMm <= 10000),
     'タイルの長さは10〜10,000mmで入力してください。'
   )
   .refine(
     (b) => b.layoutType === 'tile' || b.gapMm === 0,
     'ロール材の目地幅は0で設定してください。'
+  )
+  .transform((b) =>
+    b.layoutType === 'tile' && b.tilePattern === 'hexagon'
+      ? { ...b, heightMm: hexagonHeight(b.widthMm) }
+      : b
   )
 export type LayoutBody = z.infer<typeof layoutBodySchema>
 export interface LayoutDoc {
@@ -149,7 +158,9 @@ export function tilePatternDescription(
 ): string {
   return (
     tilePatternLabels[body.tilePattern] +
-    (body.tilePattern === 'straight' || body.tilePattern === 'herringbone'
+    (body.tilePattern === 'straight' ||
+    body.tilePattern === 'herringbone' ||
+    body.tilePattern === 'hexagon'
       ? ''
       : ` ／ ${body.staggerAxis === 'width' ? 'W（幅）' : 'L（長さ）'}方向へずらす`)
   )
@@ -275,6 +286,15 @@ export function computeLayout(polygon: Point[], scale: number, raw: LayoutBody) 
   }
   const pageAnchor = toPage({ x: anchor.x + b.offsetX, y: anchor.y + b.offsetY })
   if (b.layoutType !== 'tile') return computeRoll(local, startX, b, toPage, angle, pageAnchor)
+  if (b.tilePattern === 'hexagon')
+    return computeHexagon(
+      local,
+      b,
+      { x: anchor.x + b.offsetX, y: anchor.y + b.offsetY },
+      toPage,
+      angle,
+      pageAnchor
+    )
   if (b.tilePattern === 'herringbone')
     return computeHerringbone(
       local,
@@ -349,6 +369,79 @@ export function computeLayout(polygon: Point[], scale: number, raw: LayoutBody) 
     laidArea: laidArea / 1e6,
     angle,
     anchor: toPage({ x: anchor.x + b.offsetX, y: anchor.y + b.offsetY })
+  }
+}
+
+// W is the distance between parallel vertical sides; L is the vertex diameter.
+export const hexagonHeight = (widthMm: number): number => (widthMm * 2) / Math.sqrt(3)
+
+function computeHexagon(
+  local: Point[],
+  b: LayoutBody,
+  origin: Point,
+  toPage: (p: Point) => Point,
+  angle: number,
+  anchor: Point
+) {
+  const radius = b.widthMm / Math.sqrt(3)
+  // Expanding the apothem by half the gap gives uniform perpendicular joints.
+  const pitch = b.widthMm + b.gapMm
+  const rowPitch = (pitch * Math.sqrt(3)) / 2
+  const left = Math.floor((Math.min(...local.map((p) => p.x)) - origin.x - radius) / pitch) - 1
+  const right = Math.ceil((Math.max(...local.map((p) => p.x)) - origin.x + radius) / pitch) + 1
+  const top = Math.floor((Math.min(...local.map((p) => p.y)) - origin.y - radius) / rowPitch)
+  const bottom = Math.ceil((Math.max(...local.map((p) => p.y)) - origin.y + radius) / rowPitch)
+  if ((right - left + 1) * (bottom - top + 1) > 20000)
+    throw new Error('割り付けが2万枚を超えます。材料寸法・縮尺を確認するか、部屋を分けてください。')
+  const tiles: { polygon: Point[]; full: boolean; areaMm2: number }[] = []
+  const tileArea = (Math.sqrt(3) * b.widthMm ** 2) / 2
+  let full = 0,
+    cut = 0,
+    laidArea = 0
+  for (let row = top; row <= bottom; row++)
+    for (let col = left; col <= right; col++) {
+      const x = origin.x + (col + (((row % 2) + 2) % 2) / 2) * pitch
+      const y = origin.y + row * rowPitch
+      const polygon = Array.from({ length: 6 }, (_, i) => ({
+        x: x + radius * Math.cos(-Math.PI / 2 + (i * Math.PI) / 3),
+        y: y + radius * Math.sin(-Math.PI / 2 + (i * Math.PI) / 3)
+      }))
+      let clipped = local
+      for (let edge = 0; edge < 6; edge++) {
+        const a = polygon[edge],
+          c = polygon[(edge + 1) % 6]
+        const side = (p: Point) => (c.x - a.x) * (p.y - a.y) - (c.y - a.y) * (p.x - a.x)
+        const out: Point[] = []
+        for (let i = 0; i < clipped.length; i++) {
+          const p = clipped[i],
+            q = clipped[(i + 1) % clipped.length]
+          const dp = side(p),
+            dq = side(q)
+          if (dp >= 0) out.push(p)
+          if (dp >= 0 !== dq >= 0) {
+            const t = dp / (dp - dq)
+            out.push({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) })
+          }
+        }
+        clipped = out
+      }
+      const amount = area(clipped)
+      if (amount < Math.max(0.001, tileArea * 1e-9)) continue
+      const whole = Math.abs(amount - tileArea) <= Math.max(0.01, tileArea * 1e-7)
+      if (whole) full++
+      else cut++
+      laidArea += amount
+      tiles.push({ polygon: polygon.map(toPage), full: whole, areaMm2: amount })
+    }
+  return {
+    roll: null,
+    tiles,
+    full,
+    cut,
+    roomArea: area(local) / 1e6,
+    laidArea: laidArea / 1e6,
+    angle,
+    anchor
   }
 }
 

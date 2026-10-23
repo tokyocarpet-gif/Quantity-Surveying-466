@@ -1,4 +1,5 @@
 import { nameSchema } from '../shared/validation'
+import { orderedDrawings } from './drawing-order'
 import { readCounts } from './count-storage'
 import type Database from 'better-sqlite3'
 import { createHash } from 'node:crypto'
@@ -11,7 +12,13 @@ import {
   type SummarySource,
   type SummaryDrawing
 } from '../shared/summary'
-import { netFromTotals, finishesSchema, roomOrderSchema, type Category } from '../shared/takeoff'
+import {
+  netFromTotals,
+  finishesSchema,
+  roomOrderSchema,
+  roomLabel,
+  type Category
+} from '../shared/takeoff'
 export function readSummary(db: Database.Database, raw: unknown): SummaryReport {
   const request = summaryRequestSchema.parse(raw)
   const project = db
@@ -20,9 +27,13 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
     )
     .get(request.projectId) as { name: string; clientName: string } | undefined
   if (!project) throw new Error('集計する物件が見つかりません。')
-  const drawings = db
-    .prepare('SELECT id,name,pageCount FROM drawings WHERE projectId=? ORDER BY createdAt,id')
-    .all(request.projectId) as SummaryDrawing[]
+  const drawings = orderedDrawings(
+    db,
+    request.projectId,
+    db
+      .prepare('SELECT id,name,pageCount FROM drawings WHERE projectId=? ORDER BY createdAt,id')
+      .all(request.projectId) as SummaryDrawing[]
+  )
   const drawingOrder = new Map(drawings.map((d, index) => [d.id, index]))
   const pageOrders = new Map<string, Map<string, number>>()
   const pages = db
@@ -45,6 +56,7 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
     id: string
     groupId: string
     name: string
+    floor?: string
     drawingId: string
     pageNumber: number
   }[]
@@ -70,7 +82,7 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
       pageCounts.set(pageKey, ordinal)
       const room = {
         id: r.groupId,
-        name: r.name,
+        name: roomLabel(r),
         drawingId: r.drawingId,
         pageNumber: r.pageNumber,
         ordinal
@@ -102,6 +114,7 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
     .all(request.projectId) as Row[]
   const sources: SummarySource[] = rows.map(({ quantity, fixedQuantity, ...r }) => ({
     ...r,
+    roomName: roomLabel(storedRooms.find((room) => room.id === r.roomId)),
     roomOrdinal: groups.get(r.groupId ?? '')?.ordinal ?? 0,
     partNumber: partNumbers.get(r.roomId ?? '') ?? 0,
     rawQuantity: fixedQuantity ?? quantity,
@@ -119,7 +132,7 @@ export function readSummary(db: Database.Database, raw: unknown): SummaryReport 
           id: c.id,
           roomId: c.roomId,
           groupId: room?.groupId ?? null,
-          roomName: room?.name ?? '部屋未指定',
+          roomName: roomLabel(room),
           roomOrdinal: groups.get(room?.groupId ?? '')?.ordinal ?? 0,
           partNumber: 0,
           drawingId: c.drawingId,

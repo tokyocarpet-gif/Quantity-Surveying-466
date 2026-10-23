@@ -198,6 +198,7 @@ function registerIpc(): void {
   handle('project:create', (input) => storage.createProject(input))
   handle('project:update', (id, input) => storage.updateProject(id, input))
   handle('drawing:rename', (id, name) => storage.renameDrawing(id, name))
+  handle('drawing:reorder', (input) => storage.reorderDrawings(input))
   handle('drawing:read', (id) => storage.readPdf(idSchema.parse(id)))
   for (const [channel, kind] of [
     ['client:delete', 'clients'],

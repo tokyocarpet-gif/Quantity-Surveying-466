@@ -33,6 +33,7 @@ import {
   wallLineLength,
   netQuantity,
   roomInputOf,
+  roomLabel,
   type SleeveWall,
   type DeductionInput,
   type PageState,
@@ -48,8 +49,19 @@ import { PdfPage, type PdfView } from './PdfPage'
 import { PreviewDialog, quantityText, scaleText, TakeoffDialog } from './Dialogs'
 import { SleeveWallDialog } from './SleeveWallDialog'
 import { RoomForm } from './RoomForm'
+import { DimensionMark, dimensionText } from './DimensionMark'
+import { dimensionOffset, type DimensionLine } from '../../../shared/takeoff'
 
-type Tool = 'select' | 'pan' | 'scale' | 'room' | 'wall' | 'sleeve' | 'count' | 'count-remove'
+type Tool =
+  'select' | 'pan' | 'scale' | 'room' | 'wall' | 'sleeve' | 'count' | 'count-remove' | 'dimension'
+const floorPreferenceKey = (projectId: string): string => `takeoff-floor:${projectId}`
+function savedFloor(projectId: string): string {
+  try {
+    return (localStorage.getItem(floorPreferenceKey(projectId)) ?? '').trim().slice(0, 40)
+  } catch {
+    return ''
+  }
+}
 export function TakeoffEditor({
   drawing,
   initialSelectedId = null,
@@ -68,6 +80,21 @@ export function TakeoffEditor({
   back: () => void
 }): React.JSX.Element {
   const [state, setState] = useState<PageState | null>(null)
+  const [showDimensions, setShowDimensions] = useState(true)
+  const [dimensionDialog, setDimensionDialog] = useState<DimensionLine | null>(null)
+  const [movingDimension, setMovingDimension] = useState<string | null>(null)
+  const [activeFloor, setActiveFloor] = useState(() => savedFloor(drawing.projectId))
+  const changeFloor = (value: string): void => {
+    setActiveFloor(value)
+    try {
+      localStorage.setItem(floorPreferenceKey(drawing.projectId), value.trim())
+    } catch {
+      /* Room data is still saved in the database when local preferences are unavailable. */
+    }
+  }
+  useEffect(() => {
+    setActiveFloor(savedFloor(drawing.projectId))
+  }, [drawing.projectId])
   const [draggedRoom, setDraggedRoom] = useState<string | null>(null)
   const [roomDrop, setRoomDrop] = useState<{ id: string; after: boolean } | null>(null)
   const [error, setError] = useState(''),
@@ -194,6 +221,8 @@ export function TakeoffEditor({
     let cancelled = false
     setDraggedRoom(null)
     setRoomDrop(null)
+    setDimensionDialog(null)
+    setMovingDimension(null)
     void unwrap(window.sekisan.readTakeoff({ drawingId: drawing.id, pageNumber }))
       .then((data) => {
         if (!cancelled) setState(data)
@@ -211,10 +240,42 @@ export function TakeoffEditor({
     return () => clearTimeout(timer)
   }, [notice])
   const clearDrawing = (): void => {
+    setMovingDimension(null)
     setPoints([])
     setCursor(null)
     setMode('select')
     setPanReturn(null)
+  }
+  const saveDimension = async (
+    change: Extract<TakeoffChange, { kind: 'dimension' | 'deleteDimension' }>
+  ): Promise<void> => {
+    if (!state || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      const next = await unwrap(
+        window.sekisan.applyTakeoff({
+          drawingId: state.drawingId,
+          pageNumber: state.pageNumber,
+          expectedRevision: state.revision,
+          change
+        })
+      )
+      setState(next)
+      setPoints([])
+      setCursor(null)
+      setMovingDimension(null)
+      setDimensionDialog(null)
+      setNotice(
+        change.kind === 'dimension'
+          ? '確認用の寸法線を保存しました（数量は変更しません）'
+          : '寸法線を削除しました'
+      )
+    } catch (e) {
+      setError(errorMessage(e, '寸法線を保存できませんでした。'))
+    } finally {
+      setBusy(false)
+    }
   }
   const leave = (action: () => void): void => {
     if (busy) return
@@ -301,7 +362,7 @@ export function TakeoffEditor({
           event.target.isContentEditable)
       )
         return
-      if (busy || preview || opening || fixed || scaleDialog || sleeve) return
+      if (busy || preview || opening || fixed || scaleDialog || sleeve || dimensionDialog) return
       if (event.key === 'Enter' && ((mode === 'room' && !rectangle) || mode === 'wall')) {
         event.preventDefault()
         finish()
@@ -328,7 +389,12 @@ export function TakeoffEditor({
     if (!state || busy) return
     if (change.kind === 'room' && !change.mergeInto && !change.duplicateChoice) {
       const group = state.rooms.find((r) => r.id === change.id)?.groupId ?? change.id
-      const matches = state.rooms.filter((r) => r.name === change.input.name && r.groupId !== group)
+      const matches = state.rooms.filter(
+        (r) =>
+          r.name === change.input.name &&
+          (r.floor ?? '') === (change.input.floor ?? '') &&
+          r.groupId !== group
+      )
       if (matches.length) {
         setDuplicate(change)
         setMergeTarget(matches[0].id)
@@ -362,6 +428,7 @@ export function TakeoffEditor({
       setState(next)
       const change = preview.input.change
       if (change.kind === 'room') {
+        if (!state?.rooms.some((r) => r.id === change.id)) changeFloor(change.input.floor ?? '')
         setSelectedId(change.id)
         if (state?.rooms.find((r) => r.id === change.id)?.heightMm !== change.input.heightMm)
           setMasters((m) => ({
@@ -415,6 +482,7 @@ export function TakeoffEditor({
         Math.min(dimensions.height, ((event.clientY - rect.top) / rect.height) * dimensions.height)
       )
     }
+    if (mode === 'dimension' && points.length === 2) return point
     if (snap && mode !== 'count') {
       const candidates = [
         ...(state?.calibration?.points ?? []),
@@ -429,7 +497,8 @@ export function TakeoffEditor({
     return ((mode === 'room' && !rectangle) ||
       mode === 'wall' ||
       mode === 'sleeve' ||
-      mode === 'scale') &&
+      mode === 'scale' ||
+      mode === 'dimension') &&
       points.length > 0
       ? axisAssistPoint(point, points.at(-1)!, dimensions.scale)
       : point
@@ -441,11 +510,33 @@ export function TakeoffEditor({
       mode !== 'room' &&
       mode !== 'wall' &&
       mode !== 'sleeve' &&
+      mode !== 'dimension' &&
       mode !== 'count'
     )
       return
     event.currentTarget.focus({ preventScroll: true })
     const point = logicalPoint(event, dimensions)
+    if (mode === 'dimension') {
+      if (points.length === 1 && distance(points[0], point) < 0.01) {
+        setError('寸法の2点は離して指定してください。')
+        return
+      }
+      if (points.length === 2) {
+        const ends: [Point, Point] = [points[0], points[1]]
+        void saveDimension({
+          kind: 'dimension',
+          input: {
+            id: movingDimension ?? crypto.randomUUID(),
+            points: ends,
+            offset: dimensionOffset(ends, point)
+          }
+        })
+      } else {
+        setPoints([...points, point])
+        setError('')
+      }
+      return
+    }
     if (mode === 'count' && countEditor) {
       setCountEditor((current) =>
         current &&
@@ -519,7 +610,7 @@ export function TakeoffEditor({
           : [...points, cursor]
     return (
       <svg
-        className={`takeoff-overlay ${mode === 'room' || mode === 'wall' || mode === 'scale' || mode === 'sleeve' || mode === 'count' ? 'crosshair' : ''}`}
+        className={`takeoff-overlay ${mode === 'dimension' || mode === 'room' || mode === 'wall' || mode === 'scale' || mode === 'sleeve' || mode === 'count' ? 'crosshair' : ''}`}
         data-testid="drawing-overlay"
         tabIndex={0}
         viewBox={`0 0 ${dimensions.width} ${dimensions.height}`}
@@ -531,6 +622,7 @@ export function TakeoffEditor({
             mode === 'room' ||
             mode === 'wall' ||
             mode === 'scale' ||
+            mode === 'dimension' ||
             mode === 'sleeve' ||
             mode === 'count'
           )
@@ -571,7 +663,7 @@ export function TakeoffEditor({
                 fontSize={12 / dimensions.scale}
                 className="room-map-label"
               >
-                {room.name}
+                {roomLabel(room)}
               </text>
             </g>
           )
@@ -692,7 +784,38 @@ export function TakeoffEditor({
             pointerEvents="none"
           />
         )}
-        {!!points.length && (
+        {showDimensions &&
+          state?.scaleRatio &&
+          state.dimensionLines
+            ?.filter((line) => line.id !== movingDimension)
+            .map((line) => (
+              <DimensionMark
+                key={line.id}
+                line={line}
+                scale={state.scaleRatio!}
+                zoom={dimensions.scale}
+                select={
+                  mode === 'select' && !busy
+                    ? () => leave(() => setDimensionDialog(line))
+                    : undefined
+                }
+              />
+            ))}
+        {mode === 'dimension' && points.length === 2 && state?.scaleRatio && (
+          <DimensionMark
+            draft
+            line={{
+              id: 'draft',
+              points: [points[0], points[1]],
+              offset: cursor
+                ? dimensionOffset([points[0], points[1]], cursor)
+                : 20 / dimensions.scale
+            }}
+            scale={state.scaleRatio}
+            zoom={dimensions.scale}
+          />
+        )}
+        {!!points.length && !(mode === 'dimension' && points.length === 2) && (
           <>
             <polyline
               points={shape(draft)}
@@ -741,6 +864,21 @@ export function TakeoffEditor({
   const selectedFixed = state.items.find((i) => i.id === fixed)
   return (
     <section className="viewer takeoff-viewer" aria-busy={busy}>
+      <datalist id="takeoff-floor-options">
+        {[
+          ...new Set([
+            '地下2階',
+            '地下1階',
+            ...Array.from({ length: 20 }, (_, i) => `${i + 1}階`),
+            '屋上',
+            ...state.rooms
+              .map((room) => room.floor)
+              .filter((floor): floor is string => Boolean(floor))
+          ])
+        ].map((floor) => (
+          <option key={floor} value={floor} />
+        ))}
+      </datalist>
       <header className="viewer-header drawing-work-header">
         <button
           className="icon-button"
@@ -769,6 +907,7 @@ export function TakeoffEditor({
               { tool: 'select', label: '選択', Icon: MousePointer2 },
               { tool: 'pan', label: 'パン', Icon: Hand },
               { tool: 'scale', label: '縮尺', Icon: Ruler },
+              { tool: 'dimension', label: '寸法線', Icon: Ruler },
               { tool: 'room', label: '部屋', Icon: SquareDashed },
               { tool: 'wall', label: '壁（線）', Icon: Pencil },
               { tool: 'sleeve', label: '袖壁', Icon: Pencil },
@@ -788,6 +927,7 @@ export function TakeoffEditor({
               }
               disabled={
                 busy ||
+                (tool === 'dimension' && !state.scaleRatio) ||
                 ((tool === 'room' || tool === 'wall') && (!state.scaleRatio || !mastersLoaded)) ||
                 (tool === 'sleeve' &&
                   (!selected || selected.geometryType === 'wall-line' || !canAddOpening))
@@ -819,6 +959,8 @@ export function TakeoffEditor({
                     return
                   }
                   setEditor(null)
+                  setMovingDimension(null)
+                  if (tool === 'dimension') setShowDimensions(true)
                   setMode(tool)
                   setPoints([])
                   setCursor(null)
@@ -837,7 +979,7 @@ export function TakeoffEditor({
                 setRectangle(e.target.checked)
                 setPoints([])
               }}
-              disabled={busy || mode === 'wall'}
+              disabled={busy || mode === 'wall' || mode === 'dimension'}
             />
             矩形
           </label>
@@ -876,6 +1018,7 @@ export function TakeoffEditor({
           {(mode === 'room' ||
             mode === 'wall' ||
             mode === 'scale' ||
+            mode === 'dimension' ||
             mode === 'sleeve' ||
             mode === 'count') && (
             <button className="icon-button" aria-label="描画を中止" onClick={clearDrawing}>
@@ -968,6 +1111,31 @@ export function TakeoffEditor({
           </header>
           {leftOpen && (
             <>
+              <label className="takeoff-floor-picker">
+                <span>
+                  <input
+                    type="checkbox"
+                    checked={showDimensions}
+                    style={{ width: 'auto' }}
+                    onChange={(e) => setShowDimensions(e.target.checked)}
+                  />{' '}
+                  寸法線を表示（{state.dimensionLines?.length ?? 0}本）
+                </span>
+              </label>
+              <label className="takeoff-floor-picker">
+                新しく登録する部屋の階
+                <input
+                  aria-label="新しい部屋の階"
+                  list="takeoff-floor-options"
+                  value={activeFloor}
+                  maxLength={40}
+                  disabled={busy || changed}
+                  onChange={(e) => changeFloor(e.target.value)}
+                  onBlur={() => changeFloor(activeFloor.trim())}
+                  placeholder="未設定（例：1階）"
+                />
+                <small>一度選ぶと、次の部屋にも自動で付きます</small>
+              </label>
               <button
                 className="add-room"
                 disabled={!state.scaleRatio || busy || !mastersLoaded}
@@ -1063,7 +1231,7 @@ export function TakeoffEditor({
                     <strong>
                       <GripVertical size={13} className="room-drag-grip" aria-hidden="true" />
                       <span style={{ background: room.color }} />
-                      {room.name}
+                      {roomLabel(room)}
                     </strong>
                     {state.rooms.filter((r) => r.groupId === room.groupId).length > 1 && (
                       <small>
@@ -1112,8 +1280,7 @@ export function TakeoffEditor({
                       {c.name}
                     </strong>
                     <small>
-                      {state.rooms.find((r) => r.id === c.roomId)?.name ?? '部屋未指定'} ·{' '}
-                      {c.specification}
+                      {roomLabel(state.rooms.find((r) => r.id === c.roomId))} · {c.specification}
                     </small>
                     <div>
                       <span>
@@ -1143,25 +1310,29 @@ export function TakeoffEditor({
         </aside>
         <main className="takeoff-center">
           <div className="drawing-hint">
-            {mode === 'pan'
-              ? '左ドラッグで図面をつかんで移動。右ドラッグでも移動できます。'
-              : mode === 'count'
-                ? '対象を1点ずつクリックして数えます。右の「個数を確認」から保存します。'
-                : mode === 'count-remove'
-                  ? '取り消す番号の点をクリックしてください。'
-                  : mode === 'sleeve'
-                    ? '選択した部屋に加える袖壁の始点・終点をクリックします。外周と分けて拾うため、線が交差しても面積は変わりません。'
-                    : mode === 'scale'
-                      ? '既知の寸法の始点と終点をクリック。軸の近くは水平・垂直補助、離すと斜めに指定できます。'
-                      : mode === 'wall'
-                        ? '壁の始点・角・終点をクリック → 「確定」またはEnter。1面は2点、2面は3点。右ドラッグで移動。'
-                        : mode === 'room'
-                          ? rectangle
-                            ? '矩形の対角の2点をクリックしてください。'
-                            : '頂点をクリック → 始点クリック・「確定」で完了。軸の近くは水平・垂直補助、離すと自由描画。右ドラッグで移動。'
-                          : editor
-                            ? '右の属性を編集し、数量を確認して保存します。'
-                            : 'クリックで部屋・個数を選択・右ドラッグで移動・ホイールでカーソル中心に拡大縮小。'}
+            {mode === 'dimension'
+              ? points.length < 2
+                ? '確認する寸法の始点・終点をクリックします。数量は変更しません。'
+                : '寸法線を置く位置をクリックして保存します。Escで中止。'
+              : mode === 'pan'
+                ? '左ドラッグで図面をつかんで移動。右ドラッグでも移動できます。'
+                : mode === 'count'
+                  ? '対象を1点ずつクリックして数えます。右の「個数を確認」から保存します。'
+                  : mode === 'count-remove'
+                    ? '取り消す番号の点をクリックしてください。'
+                    : mode === 'sleeve'
+                      ? '選択した部屋に加える袖壁の始点・終点をクリックします。外周と分けて拾うため、線が交差しても面積は変わりません。'
+                      : mode === 'scale'
+                        ? '既知の寸法の始点と終点をクリック。軸の近くは水平・垂直補助、離すと斜めに指定できます。'
+                        : mode === 'wall'
+                          ? '壁の始点・角・終点をクリック → 「確定」またはEnter。1面は2点、2面は3点。右ドラッグで移動。'
+                          : mode === 'room'
+                            ? rectangle
+                              ? '矩形の対角の2点をクリックしてください。'
+                              : '頂点をクリック → 始点クリック・「確定」で完了。軸の近くは水平・垂直補助、離すと自由描画。右ドラッグで移動。'
+                            : editor
+                              ? '右の属性を編集し、数量を確認して保存します。'
+                              : 'クリックで部屋・個数を選択・右ドラッグで移動・ホイールでカーソル中心に拡大縮小。'}
           </div>
           <PdfPage
             pdf={pdf}
@@ -1172,6 +1343,7 @@ export function TakeoffEditor({
             overlay={overlay}
             pan={mode === 'pan'}
             crosshair={
+              mode === 'dimension' ||
               mode === 'room' ||
               mode === 'wall' ||
               mode === 'scale' ||
@@ -1256,6 +1428,7 @@ export function TakeoffEditor({
                 <RoomForm
                   key={editor.id}
                   room={editor.room}
+                  initialFloor={activeFloor.trim()}
                   geometryType={editor.geometryType ?? editor.room?.geometryType}
                   groupSize={
                     editor.room
@@ -1280,7 +1453,7 @@ export function TakeoffEditor({
               ) : selected ? (
                 <>
                   <div className="selected-room-title">
-                    <h3>{selected.name}</h3>
+                    <h3>{roomLabel(selected)}</h3>
                     {state.rooms.filter((r) => r.groupId === selected.groupId).length > 1 && (
                       <>
                         <p>左の一覧は統合合計です。ここでは範囲ごとの属性・数量を編集します。</p>
@@ -1535,7 +1708,8 @@ export function TakeoffEditor({
         <TakeoffDialog title="同名の部屋があります" busy={busy} close={() => setDuplicate(null)}>
           <div className="preview-body">
             <p>
-              「{duplicate.input.name}」はこのページに登録済みです。統合して数量を合算しますか？
+              「{roomLabel(duplicate.input)}
+              」はこのページの同じ階に登録済みです。統合して数量を合算しますか？
             </p>
             <p>
               別の部屋として登録すると、部屋名の末尾に（2）などの連番を付けます。統合しても図形・仕上げ・高さ・控除は範囲ごとに保持します。重なる面積・共通の辺は自動で差し引きません。
@@ -1551,13 +1725,14 @@ export function TakeoffEditor({
                   .filter(
                     (r) =>
                       r.name === duplicate.input.name &&
+                      (r.floor ?? '') === (duplicate.input.floor ?? '') &&
                       r.groupId !==
                         (state.rooms.find((n) => n.id === duplicate.id)?.groupId ?? duplicate.id)
                   )
                   .filter((r, i, all) => all.findIndex((n) => n.groupId === r.groupId) === i)
                   .map((r, i) => (
                     <option key={r.id} value={r.id}>
-                      {r.name}（候補 {i + 1}）
+                      {roomLabel(r)}（候補 {i + 1}）
                     </option>
                   ))}
               </select>
@@ -1850,6 +2025,39 @@ export function TakeoffEditor({
                 削除内容を確認
               </button>
             </div>
+          </div>
+        </TakeoffDialog>
+      )}
+      {dimensionDialog && (
+        <TakeoffDialog title="確認用の寸法線" busy={busy} close={() => setDimensionDialog(null)}>
+          <div className="preview-body">
+            <p>{dimensionText(dimensionDialog, state.scaleRatio!)}（現在の縮尺による実寸）</p>
+            <p>部屋の数量・集計・Excelには含めません。縮尺を変更すると寸法表示も更新されます。</p>
+            {error && <p role="alert">{error}</p>}
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setEditor(null)
+                setMovingDimension(dimensionDialog.id)
+                setPoints(dimensionDialog.points)
+                setCursor(null)
+                setMode('dimension')
+                setShowDimensions(true)
+                setDimensionDialog(null)
+              }}
+            >
+              線の位置を変更
+            </button>
+            <button
+              className="text-button danger-text"
+              disabled={busy}
+              onClick={() =>
+                void saveDimension({ kind: 'deleteDimension', id: dimensionDialog.id })
+              }
+            >
+              この寸法線を削除
+            </button>
           </div>
         </TakeoffDialog>
       )}

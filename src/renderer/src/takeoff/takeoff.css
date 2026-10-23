@@ -145,6 +145,21 @@
   flex: 1;
   min-height: 0;
 }
+.takeoff-floor-picker {
+  display: grid;
+  gap: 6px;
+  margin: 10px;
+  color: #4f6958;
+  font-size: 11px;
+}
+.takeoff-floor-picker input {
+  width: 100%;
+  min-width: 0;
+}
+.takeoff-floor-picker small {
+  font-size: 9px;
+  color: #6f8277;
+}
 .room-list-card {
   display: block;
   width: 100%;

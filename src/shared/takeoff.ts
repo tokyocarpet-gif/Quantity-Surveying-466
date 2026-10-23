@@ -109,6 +109,7 @@ export type SleeveWall = z.infer<typeof sleeveWallSchema>
 export const roomInputSchema = z
   .object({
     name: nameSchema,
+    floor: z.string().trim().max(40).optional(),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     heightMm: positive,
     geometryType: z.enum(['area', 'wall-line']).optional(),
@@ -148,6 +149,9 @@ export interface Room extends RoomInput {
   drawingId: string
   pageNumber: number
 }
+export function roomLabel(room: { name: string; floor?: string } | undefined): string {
+  return room ? [room.floor, room.name].filter(Boolean).join(' ') : '部屋未指定'
+}
 export interface TakeoffItem {
   id: string
   roomId: string | null
@@ -179,6 +183,33 @@ export interface Deduction extends DeductionInput {
   quantity: number
   unit: '㎡' | 'm'
 }
+export const dimensionLineSchema = z
+  .object({
+    id: idSchema,
+    points: z
+      .tuple([pointSchema, pointSchema])
+      .refine(([a, b]) => distance(a, b) >= 0.01, '寸法の2点は離して指定してください。'),
+    offset: z.number().finite().min(-1000000).max(1000000)
+  })
+  .strict()
+export const dimensionLinesSchema = z
+  .array(dimensionLineSchema)
+  .max(500)
+  .refine(
+    (lines) => new Set(lines.map((line) => line.id)).size === lines.length,
+    '寸法線のIDが重複しています。'
+  )
+export type DimensionLine = z.infer<typeof dimensionLineSchema>
+export function dimensionLengthMm(line: DimensionLine, scaleRatio: number): number {
+  return distance(...line.points) * scaleRatio * 1000
+}
+export function dimensionOffset(points: [Point, Point], position: Point): number {
+  const [a, b] = points
+  const length = distance(a, b)
+  return length < 0.01
+    ? 0
+    : (-(b.y - a.y) * (position.x - a.x) + (b.x - a.x) * (position.y - a.y)) / length
+}
 export interface PageState {
   drawingId: string
   pageNumber: number
@@ -189,6 +220,7 @@ export interface PageState {
   items: TakeoffItem[]
   deductions: Deduction[]
   counts?: CountGroup[]
+  dimensionLines?: DimensionLine[]
 }
 export const pageAddressSchema = z
   .object({ drawingId: idSchema, pageNumber: z.number().int().min(1).max(100000) })
@@ -206,6 +238,8 @@ export const reorderRoomsSchema = pageAddressSchema
 export type ReorderRooms = z.infer<typeof reorderRoomsSchema>
 
 export const changeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('dimension'), input: dimensionLineSchema }).strict(),
+  z.object({ kind: z.literal('deleteDimension'), id: idSchema }).strict(),
   z.object({ kind: z.literal('count'), id: idSchema, input: countInputSchema }).strict(),
   z.object({ kind: z.literal('deleteCount'), id: idSchema }).strict(),
   z
@@ -399,11 +433,10 @@ export function quantityRows(before: PageState, after: PageState): QuantityChang
       item = next ?? old!
     return {
       itemId: id,
-      roomName:
-        (
-          after.rooms.find((r) => r.id === item.roomId) ??
+      roomName: roomLabel(
+        after.rooms.find((r) => r.id === item.roomId) ??
           before.rooms.find((r) => r.id === item.roomId)
-        )?.name ?? '部屋未指定',
+      ),
       category: item.category,
       unit: item.unit,
       ...(old && next && old.unit !== next.unit ? { beforeUnit: old.unit } : {}),
@@ -421,6 +454,7 @@ export function scaleDenominator(scaleRatio: number | null): number | null {
 export function roomInputOf(room: Room): RoomInput {
   return {
     name: room.name,
+    ...(room.floor ? { floor: room.floor } : {}),
     color: room.color,
     heightMm: room.heightMm,
     polygon: room.polygon,

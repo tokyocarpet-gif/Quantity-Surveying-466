@@ -4,7 +4,7 @@ import { defaultWallPanel, wallKinds } from '../../../shared/wall-panels'
 import { useEffect, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import type { Drawing } from '../../../shared/api'
-import { distance, type PageState, type Point, type Room } from '../../../shared/takeoff'
+import { distance, roomLabel, type PageState, type Point, type Room } from '../../../shared/takeoff'
 import {
   computeWall,
   type WallBody,
@@ -143,7 +143,7 @@ export function WallEditor({
   function create(points: [Point, Point], r: Room | null, index: number | null) {
     if (!state.scaleRatio) return
     const next: WallBody = {
-      name: r ? `${r.name}・壁${index! + 1}` : `壁 ${docs.length + 1}`,
+      name: r ? `${roomLabel(r)}・壁${index! + 1}` : `壁 ${docs.length + 1}`,
       points,
       roomId: r?.id ?? null,
       edgeIndex: index,
@@ -258,7 +258,7 @@ export function WallEditor({
                 <option value="">部屋を選択</option>
                 {state.rooms.map((r) => (
                   <option key={r.id} value={r.id}>
-                    {r.name}
+                    {roomLabel(r)}
                   </option>
                 ))}
               </select>

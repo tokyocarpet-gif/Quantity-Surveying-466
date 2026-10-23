@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { ArrowLeft } from 'lucide-react'
 import type { Drawing } from '../../shared/api'
-import type { PageState } from '../../shared/takeoff'
+import { roomLabel, type PageState } from '../../shared/takeoff'
 import { unwrap } from './store'
 import { LayoutEditor } from './takeoff/LayoutEditor'
 import { PdfPage } from './takeoff/PdfPage'
@@ -129,7 +129,7 @@ export function LayoutPage({
           )}
           {floorRooms.map((r, i) => (
             <option key={r.id} value={r.id}>
-              {r.name}
+              {roomLabel(r)}
               {floorRooms.filter((n) => n.name === r.name).length > 1 ? `（範囲 ${i + 1}）` : ''}
             </option>
           ))}

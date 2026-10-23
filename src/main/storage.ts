@@ -8,6 +8,8 @@ import {
   validateWalls
 } from './wall-layout-storage'
 import { renderSummaryXlsx } from './summary-xlsx'
+import { orderedDrawings } from './drawing-order'
+import { drawingIdsSchema, drawingOrderKey, reorderDrawingsSchema } from '../shared/drawing-order'
 import { saveReportFile } from './export-file'
 import { layoutPdfSchema } from '../shared/layout-pdf'
 import { computeLayout, layoutSourceKey } from '../shared/layout'
@@ -67,7 +69,10 @@ import {
   HERRINGBONE_SQL,
   WALL_PANEL_SQL,
   WALL_START_SIDE_SQL,
-  ROOM_ORDER_SQL
+  ROOM_ORDER_SQL,
+  ROOM_FLOOR_SQL,
+  DIMENSION_LINES_SQL,
+  HEXAGON_SQL
 } from './schema'
 import {
   TAKEOFF_SQL,
@@ -114,7 +119,10 @@ const manifestSchema = z
       z.literal(19),
       z.literal(20),
       z.literal(21),
-      z.literal(22)
+      z.literal(22),
+      z.literal(23),
+      z.literal(24),
+      z.literal(25)
     ]),
     createdAt: z.string().datetime(),
     files: z
@@ -160,13 +168,13 @@ export class Storage {
     try {
       this.db.pragma('foreign_keys = ON')
       const version = this.db.pragma('user_version', { simple: true }) as number
-      if (version > 22)
+      if (version > 25)
         throw new Error('このデータは新しいバージョンの積算管理で作成されています。')
-      if (version > 0 && version < 22) {
+      if (version > 0 && version < 25) {
         const migrationPath = join(
           this.root,
           'recovery',
-          `before-schema-v22-${Date.now()}-${randomUUID()}.db`
+          `before-schema-v25-${Date.now()}-${randomUUID()}.db`
         )
         mkdirSync(dirname(migrationPath), { recursive: true })
         this.db.prepare('VACUUM INTO ?').run(migrationPath)
@@ -348,11 +356,18 @@ export class Storage {
     const projects = this.db
       .prepare('SELECT * FROM projects ORDER BY updatedAt DESC, id')
       .all() as Project[]
-    const drawings = this.db
+    const registeredDrawings = this.db
       .prepare(
-        'SELECT id,projectId,name,pageCount,byteSize,createdAt FROM drawings ORDER BY createdAt DESC, id'
+        'SELECT id,projectId,name,pageCount,byteSize,createdAt FROM drawings ORDER BY createdAt, id'
       )
       .all() as Drawing[]
+    const drawings = projects.flatMap((project) =>
+      orderedDrawings(
+        this.db,
+        project.id,
+        registeredDrawings.filter((d) => d.projectId === project.id)
+      )
+    )
     let selection: Selection = { clientId: null, projectId: null }
     try {
       selection = selectionSchema.parse(JSON.parse(this.setting('selection') ?? '{}'))
@@ -537,6 +552,28 @@ export class Storage {
       throw new Error('保存図面の内容が変わっています。バックアップから復元してください。')
     return new Uint8Array(data)
   }
+  reorderDrawings(raw: unknown): void {
+    const input = reorderDrawingsSchema.parse(raw)
+    this.db.transaction(() => {
+      this.requireRow('projects', input.projectId)
+      const current = orderedDrawings(
+        this.db,
+        input.projectId,
+        this.db
+          .prepare('SELECT id FROM drawings WHERE projectId=? ORDER BY createdAt,id')
+          .all(input.projectId) as { id: string }[]
+      ).map((d) => d.id)
+      if (JSON.stringify(current) !== JSON.stringify(input.expectedIds))
+        throw new Error('図面一覧が更新されています。画面を更新してから並べ替えてください。')
+      if (
+        current.length !== input.drawingIds.length ||
+        input.drawingIds.some((id) => !current.includes(id))
+      )
+        throw new Error('この物件の図面をすべて指定してください。')
+      this.setSetting(drawingOrderKey(input.projectId), JSON.stringify(input.drawingIds))
+      this.db.prepare('UPDATE projects SET updatedAt=? WHERE id=?').run(now(), input.projectId)
+    })()
+  }
   renameDrawing(id: string, input: unknown): void {
     this.requireRow('drawings', id)
     this.db.prepare('UPDATE drawings SET name=? WHERE id=?').run(nameSchema.parse(input), id)
@@ -583,7 +620,7 @@ export class Storage {
       const createdAt = now()
       const manifest = Buffer.from(
         JSON.stringify(
-          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 22, createdAt, files },
+          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 25, createdAt, files },
           null,
           2
         )
@@ -682,6 +719,9 @@ export class Storage {
         if (manifest.schemaVersion >= 20) reference.exec(WALL_PANEL_SQL)
         if (manifest.schemaVersion >= 21) reference.exec(WALL_START_SIDE_SQL)
         if (manifest.schemaVersion >= 22) reference.exec(ROOM_ORDER_SQL)
+        if (manifest.schemaVersion >= 23) reference.exec(ROOM_FLOOR_SQL)
+        if (manifest.schemaVersion >= 24) reference.exec(DIMENSION_LINES_SQL)
+        if (manifest.schemaVersion >= 25) reference.exec(HEXAGON_SQL)
         if (JSON.stringify(schema(db)) !== JSON.stringify(schema(reference)))
           throw new Error('このアプリのデータ形式と一致しません。')
       } finally {
@@ -741,13 +781,17 @@ export class Storage {
         value: string
       }[]
       for (const setting of settings) {
+        if (setting.key.startsWith('drawingOrder:')) {
+          idSchema.parse(setting.key.slice('drawingOrder:'.length))
+          drawingIdsSchema.parse(JSON.parse(setting.value))
+        }
         if (setting.key === 'selection') selectionSchema.parse(JSON.parse(setting.value))
         if (setting.key === 'lastBackupAt') z.string().datetime().parse(setting.value)
       }
     } finally {
       db.close()
     }
-    if (manifest.schemaVersion < 22) {
+    if (manifest.schemaVersion < 25) {
       const staged = new Database(join(target, DATABASE))
       try {
         staged.pragma('foreign_keys = ON')

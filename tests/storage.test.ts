@@ -15,6 +15,9 @@ import AdmZip from 'adm-zip'
 import Database from 'better-sqlite3'
 import { PDFDocument } from 'pdf-lib'
 import { Storage } from '../src/main/storage'
+import { randomUUID } from 'node:crypto'
+import { emptyFinishes } from '../src/shared/takeoff'
+import { summaryWorkbookLayout } from '../src/main/summary-xlsx'
 
 async function fixture(): Promise<{
   folder: string
@@ -49,6 +52,130 @@ function project(storage: Storage) {
   })
   return { client, item }
 }
+
+test('図面順を集計・Excel・再起動・バックアップへ引き継ぎ数量を維持する', async () => {
+  const f = await fixture()
+  try {
+    const { item } = project(f.storage)
+    const drawings = (await f.storage.importPdfs(item.id, [f.pdf, f.pdf, f.pdf])).imported
+    const states = new Map()
+    for (const [index, drawing] of drawings.entries()) {
+      const address = { drawingId: drawing.id, pageNumber: 1 }
+      f.storage.applyTakeoff({
+        ...address,
+        expectedRevision: 0,
+        change: {
+          kind: 'scale',
+          points: [
+            { x: 0, y: 0 },
+            { x: 100, y: 0 }
+          ],
+          lengthMm: 1000
+        }
+      })
+      const saved = f.storage.applyTakeoff({
+        ...address,
+        expectedRevision: 1,
+        change: {
+          kind: 'room',
+          id: randomUUID(),
+          input: {
+            name: `部屋${index}`,
+            color: '#327e6d',
+            heightMm: 2400,
+            polygon: [
+              { x: 0, y: 0 },
+              { x: 100, y: 0 },
+              { x: 100, y: 100 },
+              { x: 0, y: 100 }
+            ],
+            finishes: emptyFinishes(),
+            sleeveWalls: [],
+            enabledCategories: ['floor']
+          }
+        }
+      })
+      states.set(drawing.id, saved)
+    }
+    const initial = f.storage
+      .workspace()
+      .drawings.filter((d) => d.projectId === item.id)
+      .map((d) => d.id)
+    const desired = [...initial].reverse()
+    f.storage.reorderDrawings({ projectId: item.id, expectedIds: initial, drawingIds: desired })
+    assert.deepEqual(
+      f.storage.workspace().drawings.map((d) => d.id),
+      desired
+    )
+    for (const id of desired)
+      assert.deepEqual(f.storage.readTakeoff({ drawingId: id, pageNumber: 1 }), states.get(id))
+    const report = f.storage.readSummary({ projectId: item.id })
+    assert.deepEqual(
+      report.drawings.map((d) => d.id),
+      desired
+    )
+    assert.deepEqual(
+      report.rooms.map((r) => r.drawingId),
+      desired
+    )
+    const expectedNames = desired.map((id) => states.get(id).rooms[0].name)
+    assert.deepEqual(
+      f.storage.readSummary({ projectId: item.id, view: 'drawing' }).rows.map((r) => r.sectionKey),
+      desired
+    )
+    assert.deepEqual(
+      report.rows.map((r) => r.roomLabel),
+      expectedNames
+    )
+    const layout = summaryWorkbookLayout(report, '内装')
+    assert.deepEqual(
+      layout.grouped.map((row) => row.roomLabel),
+      expectedNames
+    )
+    assert.throws(() =>
+      f.storage.reorderDrawings({ projectId: item.id, expectedIds: initial, drawingIds: desired })
+    )
+    for (const invalid of [
+      [desired[0]],
+      [desired[0], desired[0], desired[2]],
+      [randomUUID(), ...desired.slice(1)]
+    ]) {
+      assert.throws(() =>
+        f.storage.reorderDrawings({ projectId: item.id, expectedIds: desired, drawingIds: invalid })
+      )
+    }
+    const backup = join(f.folder, 'ordered.backup')
+    await f.storage.createBackup(backup)
+    f.storage.reorderDrawings({ projectId: item.id, expectedIds: desired, drawingIds: initial })
+    await f.storage.restoreBackup(backup)
+    assert.deepEqual(
+      f.storage.workspace().drawings.map((d) => d.id),
+      desired
+    )
+    f.storage.close()
+    const reopened = new Storage(join(f.folder, 'app'))
+    try {
+      assert.deepEqual(
+        reopened.workspace().drawings.map((d) => d.id),
+        desired
+      )
+      const added = (await reopened.importPdfs(item.id, [f.pdf])).imported[0]
+      assert.deepEqual(
+        reopened.workspace().drawings.map((d) => d.id),
+        [...desired, added.id]
+      )
+      reopened.delete('drawings', desired[1])
+      assert.deepEqual(
+        reopened.workspace().drawings.map((d) => d.id),
+        [desired[0], desired[2], added.id]
+      )
+    } finally {
+      reopened.close()
+    }
+  } finally {
+    f.cleanup()
+  }
+})
 
 test('顧客・案件・設定を保存し、再起動で復元する', async () => {
   const f = await fixture()

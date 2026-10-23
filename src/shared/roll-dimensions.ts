@@ -14,10 +14,10 @@ export function dimensionNumber(
   grouping = true
 ): string {
   const decimals =
-    dimensionUnit(type, axis) === 'm' ? 1 : type === 'carpet' ? 0 : axis === 'T' ? 3 : 1
+    dimensionUnit(type, axis) === 'm' ? 2 : type === 'carpet' ? 0 : axis === 'T' ? 3 : 1
   return dimensionValue(mm, type, axis).toLocaleString('ja-JP', {
     useGrouping: grouping,
-    minimumFractionDigits: dimensionUnit(type, axis) === 'm' ? 1 : 0,
+    minimumFractionDigits: dimensionUnit(type, axis) === 'm' ? 2 : 0,
     maximumFractionDigits: decimals
   })
 }

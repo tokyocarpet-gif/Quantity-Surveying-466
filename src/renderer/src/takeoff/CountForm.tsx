@@ -1,6 +1,12 @@
 import { MaterialInput } from '../MaterialInput'
 import { materialSpecification, partLabel, type MaterialContext } from '../../../shared/materials'
-import { categories, countUnitSchema, type CountInput, type Room } from '../../../shared/takeoff'
+import {
+  categories,
+  countUnitSchema,
+  roomLabel,
+  type CountInput,
+  type Room
+} from '../../../shared/takeoff'
 
 export function CountForm({
   value,
@@ -121,7 +127,7 @@ export function CountForm({
               )
               .map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.name}
+                  {roomLabel(r)}
                 </option>
               ))}
           </select>
