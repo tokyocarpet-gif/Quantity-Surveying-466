@@ -189,7 +189,9 @@ test('v23から寸法線対応への移行で階・部屋・数量を維持す�
     const before = f.read()
     f.storage.close()
     const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
-    db.exec('ALTER TABLE drawing_pages DROP COLUMN dimensionLines; PRAGMA user_version=23')
+    db.exec(
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; PRAGMA user_version=23'
+    )
     db.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
@@ -276,7 +278,7 @@ test('v22から階対応へ移行しても既存の部屋・並び順・数量�
     f.storage.close()
     const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
     db.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; PRAGMA user_version=22'
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; PRAGMA user_version=22'
     )
     db.close()
     const reopened = new Storage(join(f.folder, 'app'))
@@ -284,7 +286,7 @@ test('v22から階対応へ移行しても既存の部屋・並び順・数量�
       assert.deepEqual(reopened.readTakeoff(f.address), before)
       assert.ok(
         readdirSync(join(f.folder, 'app/recovery')).some((name) =>
-          name.startsWith('before-schema-v25-')
+          name.startsWith('before-schema-v26-')
         )
       )
     } finally {
@@ -458,7 +460,7 @@ test('v21から並び順保存へ移行しても既存の部屋と数量は変�
     f.storage.close()
     const db = new Database(join(f.folder, 'app/data/db/sekisan-kanri.db'))
     db.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; PRAGMA user_version=21'
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; PRAGMA user_version=21'
     )
     db.close()
     const reopened = new Storage(join(f.folder, 'app'))
@@ -466,7 +468,7 @@ test('v21から並び順保存へ移行しても既存の部屋と数量は変�
       assert.deepEqual(reopened.readTakeoff(f.address), before)
       assert.ok(
         readdirSync(join(f.folder, 'app/recovery')).some((name) =>
-          name.startsWith('before-schema-v25-')
+          name.startsWith('before-schema-v26-')
         )
       )
       assert.deepEqual(
@@ -901,7 +903,7 @@ test('v1バックアップを検証してからv8へ変換・復元する', asyn
     await f.storage.restoreBackup(backup)
     assert.equal(f.storage.workspace().clients[0].name, '旧バックアップ')
     const internal = (f.storage as unknown as { db: Database.Database }).db
-    assert.equal(internal.pragma('user_version', { simple: true }), 25)
+    assert.equal(internal.pragma('user_version', { simple: true }), 26)
   } finally {
     f.cleanup()
   }
@@ -1553,18 +1555,18 @@ test('同名統合で壁の㎡とmを混ぜず、旧v13の行とJSONを変更せ
     const oldRooms = db.prepare('SELECT * FROM rooms').all()
     const oldItems = db.prepare('SELECT * FROM takeoff_items').all()
     db.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; ALTER TABLE rooms DROP COLUMN geometryType'
     )
     db.pragma('user_version = 13')
     f.storage.close()
     const reopened = new Storage(join(f.folder, 'app'))
     try {
       const migrated = (reopened as unknown as { db: Database.Database }).db
-      assert.equal(migrated.pragma('user_version', { simple: true }), 25)
+      assert.equal(migrated.pragma('user_version', { simple: true }), 26)
       assert.deepEqual(migrated.prepare('SELECT * FROM rooms').all(), oldRooms)
       assert.deepEqual(migrated.prepare('SELECT * FROM takeoff_items').all(), oldItems)
       assert.ok(
-        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v25-'))
+        readdirSync(join(f.folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v26-'))
       )
     } finally {
       reopened.close()

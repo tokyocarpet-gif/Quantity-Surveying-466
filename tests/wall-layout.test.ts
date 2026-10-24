@@ -356,7 +356,7 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     s.close()
     const db = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
     db.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder'
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder'
     )
     db.pragma('user_version=20')
     assert.throws(() => validateWalls(db), /v21/)
@@ -369,7 +369,7 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     check.close()
     const v19 = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
     v19.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder'
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder'
     )
     v19.pragma('user_version=19')
     assert.throws(() => validateWalls(v19), /v20/)
@@ -383,22 +383,22 @@ test('壁・マスタ保存、PDF、競合と古い形状の拒否、バック�
     oldData.close()
     const legacy = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
     legacy.exec(
-      'ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; PRAGMA user_version=18'
+      'ALTER TABLE materials DROP COLUMN tileShape; ALTER TABLE drawing_pages DROP COLUMN dimensionLines; ALTER TABLE rooms DROP COLUMN floor; ALTER TABLE drawing_pages DROP COLUMN roomOrder; DROP TABLE wall_layouts; ALTER TABLE materials DROP COLUMN wallpaper; PRAGMA user_version=18'
     )
     const rows = legacy.prepare('SELECT * FROM materials ORDER BY id').all()
     legacy.close()
     s = new Storage(join(folder, 'app'))
     const after = new Database(join(folder, 'app/data/db/sekisan-kanri.db'))
-    assert.equal(after.pragma('user_version', { simple: true }), 25)
+    assert.equal(after.pragma('user_version', { simple: true }), 26)
     assert.deepEqual(
       (after.prepare('SELECT * FROM materials ORDER BY id').all() as any[]).map(
-        ({ wallpaper, ...rest }) => rest
+        ({ wallpaper, tileShape, ...rest }) => rest
       ),
       rows
     )
     after.close()
     assert.ok(
-      readdirSync(join(folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v25-'))
+      readdirSync(join(folder, 'app/recovery')).some((n) => n.startsWith('before-schema-v26-'))
     )
   } finally {
     s.close()

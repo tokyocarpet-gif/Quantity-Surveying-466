@@ -66,6 +66,10 @@ PRAGMA user_version = 24;
 `
 export const HERRINGBONE_SQL = `PRAGMA user_version = 18;`
 export const HEXAGON_SQL = `PRAGMA user_version = 25;`
+export const MATERIAL_SHAPE_SQL = `
+ALTER TABLE materials ADD COLUMN tileShape TEXT NOT NULL DEFAULT 'rectangle' CHECK(tileShape IN ('rectangle','hexagon'));
+PRAGMA user_version = 26;
+`
 
 export function initializeSchema(db: Database.Database, version: number): void {
   db.transaction(() => {
@@ -94,5 +98,6 @@ export function initializeSchema(db: Database.Database, version: number): void {
     if (version < 23) db.exec(ROOM_FLOOR_SQL)
     if (version < 24) db.exec(DIMENSION_LINES_SQL)
     if (version < 25) db.exec(HEXAGON_SQL)
+    if (version < 26) db.exec(MATERIAL_SHAPE_SQL)
   })()
 }

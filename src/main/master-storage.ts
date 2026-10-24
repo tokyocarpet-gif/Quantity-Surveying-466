@@ -91,7 +91,7 @@ export function changeMaterials(db: Database.Database, raw: unknown): void {
       if (old && old.projectId !== change.input.projectId)
         throw new Error('共通・物件マスタの所属は変更できません。')
       db.prepare(
-        'INSERT INTO materials(id,projectId,category,name,unitPrice,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType,wallpaper) VALUES (@id,@projectId,@category,@name,@unitPrice,@specification,@unit,@tileWidthMm,@tileHeightMm,@tileGapMm,@tileThicknessMm,@layoutType,@wallpaper) ON CONFLICT(id) DO UPDATE SET category=excluded.category,name=excluded.name,unitPrice=excluded.unitPrice,specification=excluded.specification,unit=excluded.unit,tileWidthMm=excluded.tileWidthMm,tileHeightMm=excluded.tileHeightMm,tileGapMm=excluded.tileGapMm,tileThicknessMm=excluded.tileThicknessMm,layoutType=excluded.layoutType,wallpaper=excluded.wallpaper'
+        'INSERT INTO materials(id,projectId,category,name,unitPrice,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType,wallpaper,tileShape) VALUES (@id,@projectId,@category,@name,@unitPrice,@specification,@unit,@tileWidthMm,@tileHeightMm,@tileGapMm,@tileThicknessMm,@layoutType,@wallpaper,@tileShape) ON CONFLICT(id) DO UPDATE SET category=excluded.category,name=excluded.name,unitPrice=excluded.unitPrice,specification=excluded.specification,unit=excluded.unit,tileWidthMm=excluded.tileWidthMm,tileHeightMm=excluded.tileHeightMm,tileGapMm=excluded.tileGapMm,tileThicknessMm=excluded.tileThicknessMm,layoutType=excluded.layoutType,wallpaper=excluded.wallpaper,tileShape=excluded.tileShape'
       ).run({
         id: change.id,
         ...change.input,
@@ -114,7 +114,7 @@ export function changeMaterials(db: Database.Database, raw: unknown): void {
         )
           continue
         db.prepare(
-          'INSERT INTO materials(id,projectId,category,name,unitPrice,sourceId,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType,wallpaper) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+          'INSERT INTO materials(id,projectId,category,name,unitPrice,sourceId,specification,unit,tileWidthMm,tileHeightMm,tileGapMm,tileThicknessMm,layoutType,wallpaper,tileShape) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
         ).run(
           randomUUID(),
           change.projectId,
@@ -129,7 +129,8 @@ export function changeMaterials(db: Database.Database, raw: unknown): void {
           source.tileGapMm,
           source.tileThicknessMm,
           source.layoutType,
-          source.wallpaper ?? null
+          source.wallpaper ?? null,
+          source.tileShape
         )
       }
     }

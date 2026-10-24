@@ -139,6 +139,12 @@ export function LayoutEditor({
               ...initial,
               materialId: m.id,
               layoutType: m.layoutType,
+              tilePattern:
+                m.tileShape === 'hexagon'
+                  ? 'hexagon'
+                  : initial.tilePattern === 'hexagon'
+                    ? 'straight'
+                    : initial.tilePattern,
               maxWidthMm: m.layoutType === 'tile' ? null : m.tileWidthMm,
               rollCutMode: 'width',
               specification: materialSpecification(m),
@@ -414,6 +420,12 @@ export function LayoutEditor({
                 change({
                   materialId: m.id,
                   layoutType: m.layoutType,
+                  tilePattern:
+                    m.tileShape === 'hexagon'
+                      ? 'hexagon'
+                      : body.tilePattern === 'hexagon'
+                        ? 'straight'
+                        : body.tilePattern,
                   maxWidthMm: m.layoutType === 'tile' ? null : m.tileWidthMm,
                   rollCutMode: 'width',
                   gapMm: m.layoutType === 'tile' ? body.gapMm : 0,

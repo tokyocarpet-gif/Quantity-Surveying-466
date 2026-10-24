@@ -79,7 +79,7 @@ export function WallPanelFields({
         >
           <option value="">材料を選択</option>
           {materials
-            .filter((m) => m.layoutType === 'tile' && !m.wallpaper)
+            .filter((m) => m.layoutType === 'tile' && m.tileShape !== 'hexagon' && !m.wallpaper)
             .map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -90,6 +90,11 @@ export function WallPanelFields({
             ))}
         </select>
       </label>
+      {materials.some((m) => m.tileShape === 'hexagon') && (
+        <p>
+          ヘキサゴンの配置は床材の割り付けで利用できます。壁材の割り付けは四角形に対応しています。
+        </p>
+      )}
       <button className="secondary" onClick={openMaster}>
         マスタ管理を開く
       </button>

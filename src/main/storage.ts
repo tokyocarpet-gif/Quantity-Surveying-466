@@ -72,7 +72,8 @@ import {
   ROOM_ORDER_SQL,
   ROOM_FLOOR_SQL,
   DIMENSION_LINES_SQL,
-  HEXAGON_SQL
+  HEXAGON_SQL,
+  MATERIAL_SHAPE_SQL
 } from './schema'
 import {
   TAKEOFF_SQL,
@@ -122,7 +123,8 @@ const manifestSchema = z
       z.literal(22),
       z.literal(23),
       z.literal(24),
-      z.literal(25)
+      z.literal(25),
+      z.literal(26)
     ]),
     createdAt: z.string().datetime(),
     files: z
@@ -168,13 +170,13 @@ export class Storage {
     try {
       this.db.pragma('foreign_keys = ON')
       const version = this.db.pragma('user_version', { simple: true }) as number
-      if (version > 25)
+      if (version > 26)
         throw new Error('このデータは新しいバージョンの積算管理で作成されています。')
-      if (version > 0 && version < 25) {
+      if (version > 0 && version < 26) {
         const migrationPath = join(
           this.root,
           'recovery',
-          `before-schema-v25-${Date.now()}-${randomUUID()}.db`
+          `before-schema-v26-${Date.now()}-${randomUUID()}.db`
         )
         mkdirSync(dirname(migrationPath), { recursive: true })
         this.db.prepare('VACUUM INTO ?').run(migrationPath)
@@ -620,7 +622,7 @@ export class Storage {
       const createdAt = now()
       const manifest = Buffer.from(
         JSON.stringify(
-          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 25, createdAt, files },
+          { application: 'sekisan-kanri', formatVersion: 1, schemaVersion: 26, createdAt, files },
           null,
           2
         )
@@ -722,6 +724,7 @@ export class Storage {
         if (manifest.schemaVersion >= 23) reference.exec(ROOM_FLOOR_SQL)
         if (manifest.schemaVersion >= 24) reference.exec(DIMENSION_LINES_SQL)
         if (manifest.schemaVersion >= 25) reference.exec(HEXAGON_SQL)
+        if (manifest.schemaVersion >= 26) reference.exec(MATERIAL_SHAPE_SQL)
         if (JSON.stringify(schema(db)) !== JSON.stringify(schema(reference)))
           throw new Error('このアプリのデータ形式と一致しません。')
       } finally {
@@ -791,7 +794,7 @@ export class Storage {
     } finally {
       db.close()
     }
-    if (manifest.schemaVersion < 25) {
+    if (manifest.schemaVersion < 26) {
       const staged = new Database(join(target, DATABASE))
       try {
         staged.pragma('foreign_keys = ON')

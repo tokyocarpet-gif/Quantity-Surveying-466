@@ -1,12 +1,13 @@
 import { wallpaperSchema } from './wall-layout'
 import { dimensionLabel } from './roll-dimensions'
-import { tileDimensions } from './layout'
+import { hexagonHeight, tileDimensions } from './layout'
 import { z } from 'zod'
 import { idSchema, nameSchema } from './validation'
 import { categoryUnits, categoryLabels, type Category } from './takeoff'
 export const materialInputSchema = z
   .object({
     ...tileDimensions,
+    tileShape: z.enum(['rectangle', 'hexagon']).default('rectangle'),
     wallpaper: wallpaperSchema.nullable().optional(),
     projectId: idSchema.nullable(),
     category: nameSchema,
@@ -17,11 +18,25 @@ export const materialInputSchema = z
   })
   .strict()
   .refine(
-    (m) => m.layoutType !== 'tile' || m.tileHeightMm === null || m.tileHeightMm <= 10000,
+    (m) =>
+      m.layoutType !== 'tile' ||
+      m.tileShape === 'hexagon' ||
+      m.tileHeightMm === null ||
+      m.tileHeightMm <= 10000,
     'タイル・その他の長さは10,000mm以内で入力してください。'
+  )
+  .refine(
+    (m) => m.layoutType === 'tile' || m.tileShape === 'rectangle',
+    'ヘキサゴンは材料の種類をタイル・その他にしてください。'
   )
   .transform((m) => ({
     ...m,
+    tileHeightMm:
+      m.tileShape === 'hexagon'
+        ? m.tileWidthMm === null
+          ? null
+          : hexagonHeight(m.tileWidthMm)
+        : m.tileHeightMm,
     unit:
       m.unit ??
       (Object.hasOwn(categoryUnits, m.category) ? categoryUnits[m.category as Category] : '式')
@@ -59,8 +74,19 @@ export type MaterialChange = z.infer<typeof materialChangeSchema>
 export function materialStandard(
   m: Pick<Material, 'tileWidthMm' | 'tileHeightMm' | 'tileThicknessMm'> & {
     layoutType?: Material['layoutType']
+    tileShape?: Material['tileShape']
   }
 ): string {
+  if (m.tileShape === 'hexagon' && (!m.layoutType || m.layoutType === 'tile'))
+    return [
+      'ヘキサゴン（正六角形）',
+      m.tileWidthMm == null
+        ? ''
+        : `対辺W ${m.tileWidthMm} mm × 対角L ${hexagonHeight(m.tileWidthMm).toFixed(2)} mm`,
+      m.tileThicknessMm == null ? '' : `厚みT ${m.tileThicknessMm} mm`
+    ]
+      .filter(Boolean)
+      .join(' ／ ')
   if (m.layoutType && m.layoutType !== 'tile')
     return (
       [
@@ -88,10 +114,14 @@ export function materialStandard(
 export function materialSpecification(
   m: Pick<Material, 'specification' | 'tileWidthMm' | 'tileHeightMm' | 'tileThicknessMm'> & {
     layoutType?: Material['layoutType']
+    tileShape?: Material['tileShape']
   }
 ): string {
   const standard =
-    (!m.layoutType || m.layoutType === 'tile') && m.tileWidthMm != null && m.tileHeightMm != null
+    m.tileShape !== 'hexagon' &&
+    (!m.layoutType || m.layoutType === 'tile') &&
+    m.tileWidthMm != null &&
+    m.tileHeightMm != null
       ? [m.tileWidthMm, m.tileHeightMm, m.tileThicknessMm].filter((v) => v != null).join('×') +
         ' mm'
       : materialStandard(m)

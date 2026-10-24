@@ -408,6 +408,7 @@ export function MaterialManager({
                   name: f.get('name'),
                   specification: f.get('specification'),
                   layoutType: f.get('layoutType'),
+                  tileShape: f.get('tileShape'),
                   tileWidthMm: f.get('tileWidthMm') === '' ? null : Number(f.get('tileWidthMm')),
                   tileHeightMm: f.get('tileHeightMm') === '' ? null : Number(f.get('tileHeightMm')),
                   tileThicknessMm:
